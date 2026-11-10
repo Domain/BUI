@@ -18,6 +18,8 @@ Where the version lives (one source of truth per registry, all moved together):
 * Python: `bindings/python/bui/_version.py` (the wheel reads it).
 * Rust: `[workspace.package]` in `bindings/rust/Cargo.toml`, and the `version = "..."` of every
   sibling path dependency (`blenderui-sys = { path = "...", version = "..." }`).
+* D: `bindings/d/dub.json` and the hand-written `BUI_KIT_VERSION_*` constants in
+  `bindings/d/source/bui/kit.d` (they mirror `kit/include/BUI_kit.h`).
 * npm (only with `--npm`): every already-published package in `bindings/package.json`'s workspaces
   moves to the same version; a package not on npm yet keeps its own first version. All of them
   follow `@blender-ui/native` in their dependency range. npm versions are otherwise independent of the tag.
@@ -110,6 +112,18 @@ def plan_edits(new: str, npm: str | None) -> dict[Path, str]:
         htext = re.sub(rf"(#define BUI_KIT_VERSION_{part}\s+)\d+", rf"\g<1>{value}", htext)
     htext = re.sub(r'(#define BUI_KIT_VERSION_STRING\s+")[^"]+(")', rf"\g<1>{new}\g<2>", htext)
     put(header, htext)
+
+    dub = ROOT / "bindings" / "d" / "dub.json"
+    text = read(dub)
+    text = re.sub(r'("version"\s*:\s*")[^"]+(")', rf"\g<1>{new}\g<2>", text, count=1)
+    put(dub, text)
+
+    dkit = ROOT / "bindings" / "d" / "source" / "bui" / "kit.d"
+    text = read(dkit)
+    for part, value in zip(("MAJOR", "MINOR", "PATCH"), new.split(".")):
+        text = re.sub(rf"(enum BUI_KIT_VERSION_{part}\s*=\s*)\d+", rf"\g<1>{value}", text)
+    text = re.sub(r'(enum BUI_KIT_VERSION_STRING\s*=\s*")[^"]+(")', rf"\g<1>{new}\g<2>", text)
+    put(dkit, text)
 
     ws = RUST / "Cargo.toml"
     text = read(ws)

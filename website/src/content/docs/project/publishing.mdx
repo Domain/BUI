@@ -131,7 +131,7 @@ A published crate can't reach files outside itself, so `blenderui-sys` must carr
 
 <Steps>
 
-1. **Bump the version** in `bindings/rust/Cargo.toml` (`[workspace.package]`); the crates share one version. Then update the `version = "..."` of the path dependencies in `blenderui/Cargo.toml`, `blenderui-macros/Cargo.toml`, `blenderui-imgui/Cargo.toml`, `blenderui-table/Cargo.toml` and `blenderui-vlist/Cargo.toml`. `python tools/check_versions.py vX.Y.Z` checks all of them.
+1. **Bump the version** in `bindings/rust/Cargo.toml` (`[workspace.package]`); the crates share one version. Then update the `version = "..."` of the path dependencies in `blenderui/Cargo.toml`, `blenderui-macros/Cargo.toml`, `blenderui-imgui/Cargo.toml`, `blenderui-table/Cargo.toml` and `blenderui-vlist/Cargo.toml`. The DUB package (`bindings/d/dub.json`) and its `BUI_KIT_VERSION_*` copies in `bindings/d/source/bui/kit.d` move with the same version. `python tools/bump_version.py minor` updates all of them, and `python tools/check_versions.py vX.Y.Z` checks them.
 
 2. **Log in once** with `cargo login` and a crates.io API token.
 

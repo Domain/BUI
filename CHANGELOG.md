@@ -19,6 +19,7 @@ All notable changes to **blenderui** (BUI). The format follows
   `font.family`, `font.size`, `shadow` and `radius`. The Rust `styled` sheet follows the theme. Errors name the line
   and column and add no themes. `docs/theming.md`, `docs/theme-keys.md`, `docs/theme-schema.json` (for editor
   completion) and `docs/themes/catppuccin.json` (an example); the website's Theming page.
+- **D bindings** (`bindings/d`): a DUB package with raw `extern(C)` declarations for the whole kit, GPU and stable C API, plus idiomatic wrappers for nodes, contexts, windows, menus, rasters, images, video, canvases, trees, text areas, custom nodes and themes. The kit is built through CMake from `preBuildCommands`, ownership follows the Python binding's reference-hook model, and `dub run --config=test` covers the wrappers, raw API, events, menus and host errors end to end. Examples: `hello.d` and `headless.d`.
 - **Rust:** `<input live>` (and `<textarea live>`): the field reports every keystroke to `on_input` / `on_change`, not only on Enter or blur,
   so a view can follow the typing (a search box, a date field that lights up a calendar).
 - **Linux window requests** that Win32 and Cocoa already had, through `BK_window_wm` (Python `Window.wm`):
