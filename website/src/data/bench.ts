@@ -266,7 +266,7 @@ const tablesBase = {
       ["Bun (bun --preload …/register app.js)", "<strong>58 ms</strong>", "101 ms", "34.7 / 48.7 MB"],
       ["Node.js (node --import …/register app.js)", "<strong>72 ms</strong>", "125 ms", "43.7 / 56.3 MB"],
     ],
-    note: "Vue's compiler is most of its size, so register caches compiled components in node_modules/.cache/@blender-ui/vue, and a cached start never loads it: before the cache Node.js took 209 ms and Bun 189 ms. The executables bundle compiled components and don't use the cache. The React and Vue columns ran one after the other, not interleaved.",
+    note: "Vue's SFC compiler is most of its size, so register caches compiled components in node_modules/.cache/@blender-ui/vue, and a cached start never loads its SFC compiler (vue/compiler-sfc): before the cache Node.js took 209 ms and Bun 189 ms. The executables bundle compiled components and don't use the cache. The React and Vue columns ran one after the other, not interleaved.",
   },
   jsAnim1000: {
     caption: "JavaScript animation, 1,000 cells",

@@ -30,7 +30,8 @@ function kind (el) {
   return null
 }
 
-const state = (el) => (el._model ??= { value: undefined, update: null, instance: null, mods: null, listener: null })
+const state = (el) => (el._model ??= { value: undefined, update: null, instance: null, mods: null, listener: null,
+  event: null })
 
 /** Vue's loose number conversion: a number when the text is one. */
 const toNumber = (s) => {
@@ -42,8 +43,27 @@ const toNumber = (s) => {
  *  its `value` attribute. `props.js` keeps the bound one in `_value`, as Vue's DOM renderer does. */
 const valueOf = (el) => ('_value' in el ? el._value : el.value)
 
-/** Vue's `looseEqual` for what a control can hold: primitives by their text, objects by identity. */
-const same = (a, b) => (Object(a) === a || Object(b) === b ? a === b : String(a) === String(b))
+/** Vue's `looseEqual` (@vue/shared): dates by time, symbols by identity, arrays item by item, objects key
+ *  by key, anything else by its text. */
+function same (a, b) {
+  if (a === b) return true
+  const aDate = a instanceof Date
+  const bDate = b instanceof Date
+  if (aDate || bDate) return aDate && bDate ? a.getTime() === b.getTime() : false
+  if (typeof a === 'symbol' || typeof b === 'symbol') return false
+  const aArray = Array.isArray(a)
+  const bArray = Array.isArray(b)
+  if (aArray || bArray) return aArray && bArray && a.length === b.length && a.every((x, i) => same(x, b[i]))
+  const aObject = a !== null && typeof a === 'object'
+  const bObject = b !== null && typeof b === 'object'
+  if (aObject || bObject) {
+    if (!aObject || !bObject) return false
+    const keys = Object.keys(a)
+    if (keys.length !== Object.keys(b).length) return false
+    return keys.every((k) => Object.prototype.hasOwnProperty.call(b, k) && same(a[k], b[k]))
+  }
+  return String(a) === String(b)
+}
 
 const trueValue = (el) => ('_trueValue' in el ? el._trueValue : true)
 const falseValue = (el) => ('_falseValue' in el ? el._falseValue : false)
@@ -116,11 +136,29 @@ export function setModelUpdate (el, update, instance) {
   const m = state(el)
   m.update = update
   m.instance = instance
-  if (update == null || m.listener !== null) return
+  if (update != null) listen(el, m)
+}
+
+/** Listen for the event the control reports changes with now: `input` while typing, `change` for a
+ *  checkbox, a radio or a select. A type patch can change it. */
+function listen (el, m) {
   const k = kind(el)
-  if (k === null) return
-  m.listener = () => { // the latest handler: a re-render may have replaced it
+  const event = k === null ? null : k === 'text' || k === 'number' ? 'input' : 'change'
+  if (event === m.event) return
+  if (m.event !== null) el.removeEventListener(m.event, m.listener)
+  m.event = event
+  if (event === null) return
+  m.listener ??= () => { // the latest handler: a re-render may have replaced it
     if (m.update != null) callWithAsyncErrorHandling(m.update, m.instance, ErrorCodes.NATIVE_EVENT_HANDLER, [read(el, m)])
   }
-  el.addEventListener(k === 'text' || k === 'number' ? 'input' : 'change', m.listener)
+  el.addEventListener(event, m.listener)
+}
+
+/** After `type` changed (`<input :type="t" v-model="v">`): listen for the new kind's event and show the
+ *  model in it (a checkbox shows it checked, a text field as text). */
+export function modelTypeChanged (el) {
+  const m = el._model
+  if (m == null) return
+  if (m.update != null) listen(el, m)
+  setModelValue(el, m.value)
 }

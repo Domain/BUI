@@ -8,7 +8,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 import { callWithAsyncErrorHandling, ErrorCodes } from 'vue'
 import host from '@blender-ui/native/host'
-import { setModelValue, setModelUpdate, setModelModifiers, refreshModel } from './model.js'
+import { setModelValue, setModelUpdate, setModelModifiers, refreshModel, modelTypeChanged } from './model.js'
 
 const { applyProps, NO_PROPS } = host
 
@@ -114,4 +114,5 @@ export function patchProp (el, key, prev, next, namespace, instance) {
   applyProps(el, prev == null ? NO_PROPS : prevProp, nextProp)
   delete prevProp[key]
   delete nextProp[key]
+  if (key === 'type' && prev != null) modelTypeChanged(el)
 }

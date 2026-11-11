@@ -6,7 +6,7 @@ section: JavaScript & React
 order: 27
 languages: ["javascript"]
 badges: ["Vue 3.5"]
-sources: ["docs/javascript.md", "bindings/vue/README.md", "bindings/vue/index.js", "bindings/vue/props.js", "bindings/vue/model.js", "bindings/vue/compile.js", "bindings/vue/index.d.ts", "bindings/vue/package.json", "bindings/vue/examples/Counter.vue", "bindings/vue/examples/counter.js", "examples/site/js/TodoVue.vue", "examples/site/js/todo_vue.mjs", "bindings/node/bench/Grid.vue", "bindings/node/bench/cells.js", "bindings/node/host.js", "bindings/node/dom.js"]
+sources: ["docs/javascript.md", "bindings/vue/README.md", "bindings/vue/index.js", "bindings/vue/props.js", "bindings/vue/model.js", "bindings/vue/compile.js", "bindings/vue/index.d.ts", "bindings/vue/package.json", "bindings/vue/examples/Counter.vue", "bindings/vue/examples/counter.js", "examples/site/js/TodoVue.vue", "examples/site/js/todo_vue.mjs", "bindings/node/bench/Grid.vue", "bindings/node/bench/cells.js", "bindings/node/host.js", "bindings/node/dom.js", "bindings/node/platform.js", "website/src/content/docs/start/installation.mdx"]
 ---
 
 Write Vue components as you would for the browser, and get a native desktop window instead. **`@blender-ui/vue` mounts Vue 3 components into BUI**: refs, `v-model`, `v-if` and `v-for`, slots, `provide` / `inject`, `<script setup>` and TypeScript work as they do on the web, BUI draws the result on the CPU or the GPU, and Blender's widgets are one import away. No Electron, no webview.
@@ -21,7 +21,7 @@ npm install @blender-ui/vue vue
 bun add @blender-ui/vue vue
 ```
 
-It brings `@blender-ui/native` with it. Vue 3.5 or newer is a peer dependency, and Node.js needs to be 22.15 or newer (Bun works too). The native addon is prebuilt for Windows x64; on Linux, [build it from source](../../start/installation/).
+It brings `@blender-ui/native` with it. Vue 3.5 or newer is a peer dependency, and Node.js needs to be 22.15 or newer (Bun works too). The native addon is prebuilt for Windows x64, Linux x64 (glibc 2.35 or later) and macOS, where JavaScript runs headless; on other systems, [build it from source](../../start/installation/).
 
 ## Your first component
 
@@ -127,7 +127,7 @@ The ten components are `Button`, `Checkbox`, `Radio`, `NumberField`, `NumberSlid
 
 ## Styles
 
-A component's `<style>` and `<style scoped>` blocks work (plain CSS): Vue scopes them with a `data-v-…` attribute, and BUI adds each component's stylesheet to a window once, however many instances it shows. Tailwind classes and `style` attributes work everywhere, as in the other bindings.
+A component's `<style>` and `<style scoped>` blocks work (plain CSS). Only `<style scoped>` is scoped, with a `data-v-…` attribute on the component's elements; a plain `<style>` stays global and applies to every component in the window. BUI adds each stylesheet to a window once, however many instances show it. Tailwind classes and `style` attributes work everywhere, as in the other bindings.
 
 ## Signals
 

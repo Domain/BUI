@@ -141,10 +141,26 @@ const cycles = () => native.processCpuCycles()
 const tsc = () => native.timestampCounter()
 const exact = cycles() != null && tsc() != null
 
-// the JavaScript cost of an update, alone
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 let t = 0
 let jsUs = null
-setTimeout(async () => {
+let updates = 0, running = false
+let wall0, cpu0, tsc0, cal0
+let rss = 0, peakRss = 0, samples = 0
+// one update per displayed frame (vsync), like the Rust benchmark
+const frame = () => { if (!running) return; tick(++t); updates++; win.requestAnimationFrame(frame) }
+const sampler = setInterval(() => {
+  if (wall0 === undefined) return
+  const r = process.memoryUsage.rss()
+  rss += r
+  peakRss = Math.max(peakRss, r)
+  samples++
+}, 100)
+
+// One phase after another, so a slow phase can't eat into the next one: the JavaScript cost of an
+// update alone, then the animation with its full warm-up, then the measured seconds.
+;(async () => {
+  await sleep(100)
   const n = 500
   const t0 = performance.now()
   for (let i = 0; i < n; i++) {
@@ -157,30 +173,18 @@ setTimeout(async () => {
     win.flush()
   }
   jsUs = (performance.now() - t0) / n * 1000
-}, 100)
 
-let updates = 0, running = true
-let wall0, cpu0, tsc0, cal0
-let rss = 0, peakRss = 0, samples = 0
-// one update per displayed frame (vsync), like the Rust benchmark
-const frame = () => { if (!running) return; tick(++t); updates++; win.requestAnimationFrame(frame) }
-setTimeout(() => win.requestAnimationFrame(frame), 200)
-setTimeout(() => { cal0 = [performance.now(), exact ? tsc() : 0] }, 200)
-setTimeout(() => {
+  running = true
+  win.requestAnimationFrame(frame)
+  cal0 = [performance.now(), exact ? tsc() : 0]
+  await sleep(warmup * 1000)
   wall0 = performance.now()
   cpu0 = exact ? cycles() : process.cpuUsage()
   tsc0 = exact ? tsc() : 0
   updates = 0
   rss = peakRss = samples = 0
-}, warmup * 1000)
-const sampler = setInterval(() => {
-  if (wall0 === undefined) return
-  const r = process.memoryUsage.rss()
-  rss += r
-  peakRss = Math.max(peakRss, r)
-  samples++
-}, 100)
-setTimeout(() => {
+  await sleep(seconds * 1000)
+
   const wall = performance.now() - wall0
   let ms
   if (exact) {
@@ -207,4 +211,4 @@ setTimeout(() => {
     js_us_per_update: +jsUs.toFixed(1),
   }))
   app.quit()
-}, (warmup + seconds) * 1000)
+})()

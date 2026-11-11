@@ -86,7 +86,8 @@ function checkLanguages (descriptor, filename) {
   const { template, script, scriptSetup } = descriptor
   if (template && template.lang && template.lang !== 'html') fail(`<template lang="${template.lang}">, only HTML`)
   for (const s of [script, scriptSetup]) {
-    if (s && s.lang && !['js', 'jsx', 'ts', 'tsx'].includes(s.lang)) fail(`<script lang="${s.lang}">`)
+    // JSX would need a JSX transform (Node strips types only), so only plain JavaScript and TypeScript
+    if (s && s.lang && !['js', 'ts'].includes(s.lang)) fail(`<script lang="${s.lang}">, only js and ts`)
   }
   for (const block of [template, script, scriptSetup, ...descriptor.styles]) {
     if (block && block.src) fail('a block with src="…" (put the code in the file)')
@@ -126,7 +127,7 @@ function compileNow (source, filename, keepTypes) {
   const id = hash(filename).slice(0, 8)
   const scopeId = `data-v-${id}`
   const scoped = descriptor.styles.some((s) => s.scoped)
-  const typescript = [descriptor.script, descriptor.scriptSetup].some((s) => s?.lang === 'ts' || s?.lang === 'tsx')
+  const typescript = [descriptor.script, descriptor.scriptSetup].some((s) => s?.lang === 'ts')
   const templateOptions = { compiler, scoped, id, compilerOptions: { scopeId: scoped ? scopeId : undefined } }
 
   const out = []

@@ -5,13 +5,14 @@ import { Button, Checkbox, ProgressBar, TextField } from '../../../bindings/vue/
 import style from './todo_style.js'
 const { TASKS, TAG_COLORS, CSS } = style
 
-const tasks = ref(TASKS.map((t) => ({ ...t })))
+let nextId = 0
+const tasks = ref(TASKS.map((t) => ({ ...t, id: nextId++ })))
 const filter = ref('All')
 const draft = ref('')
 const done = computed(() => tasks.value.filter((t) => t.done).length)
 const pct = computed(() => Math.round(100 * done.value / tasks.value.length))
 const shown = computed(() => tasks.value.filter((t) => filter.value === 'All' || (filter.value === 'Done') === t.done))
-const add = () => { if (draft.value) tasks.value.push({ text: draft.value, tag: 'Modeling', done: false }) }
+const add = () => { if (draft.value) tasks.value.push({ id: nextId++, text: draft.value, tag: 'Modeling', done: false }) }
 </script>
 
 <template>
@@ -29,7 +30,7 @@ const add = () => { if (draft.value) tasks.value.push({ text: draft.value, tag: 
       <span v-for="f in ['All', 'Active', 'Done']" :key="f" :class="filter === f ? 'filter on' : 'filter'" @click="filter = f">{{ f }}</span>
     </div>
     <div class="list">
-      <div v-for="task in shown" :key="task.text" :class="task.done ? 'item done' : 'item'">
+      <div v-for="task in shown" :key="task.id" :class="task.done ? 'item done' : 'item'">
         <Checkbox v-model="task.done" />
         <span class="text">{{ task.text }}</span>
         <span class="tag" :style="{ backgroundColor: TAG_COLORS[task.tag] }">{{ task.tag }}</span>

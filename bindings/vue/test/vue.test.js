@@ -16,6 +16,7 @@ import Counter from './fixtures/Counter.vue'
 import Example from '../examples/Counter.vue'
 import Form from './fixtures/Form.vue'
 import Raw from './fixtures/Raw.vue'
+import Loose from './fixtures/Loose.vue'
 import List from './fixtures/List.vue'
 import Cards from './fixtures/Cards.vue'
 import Show from './fixtures/Show.vue'
@@ -124,6 +125,32 @@ test('Vue: v-model keeps the types of bound values, and true-value / false-value
   find('yn')._dispatch({ kind: 'change', checked: false })
   await tick()
   assert.match(out(), /\|no\|/, 'false-value')
+})
+
+test('Vue: v-model compares objects by structure, and follows an input whose type changes', async (t) => {
+  const { window, component } = open(t, Loose)
+  await settle(window)
+  const find = finder(window)
+  // a fresh, equal object is the same value (Vue's looseEqual)
+  assert.deepStrictEqual([find('o1').checked, find('o2').checked], [true, false])
+  find('o2')._dispatch({ kind: 'change', checked: true })
+  await tick()
+  find('o1')._dispatch({ kind: 'change', checked: false })
+  await tick()
+  assert.strictEqual(find('out').textContent.split('|')[0], '[{"id":2}]', 'removed the equal object, not a second copy')
+  // text -> checkbox: the control listens for `change` now, and shows the model as a checkbox
+  const dyn = find('dyn')
+  dyn._dispatch({ kind: 'input', value: 'typed' })
+  await tick()
+  assert.strictEqual(component.value, 'typed')
+  component.kind = 'checkbox'
+  await tick()
+  dyn._dispatch({ kind: 'input', value: 'ignored' })
+  await tick()
+  assert.strictEqual(component.value, 'typed', 'an input event no longer reports')
+  dyn._dispatch({ kind: 'change', checked: true })
+  await tick()
+  assert.strictEqual(component.value, true, 'a checkbox reports through change')
 })
 
 test('Vue: v-for with keys keeps and moves nodes; v-if / v-else-if / v-else; fragments', async (t) => {
@@ -451,6 +478,8 @@ test('Vue: Button, and what compile.js does to a template', () => {
   const big = '<template><div>' + '<p>static text</p>'.repeat(40) + '</div></template>'
   assert.doesNotMatch(code(big), /createStaticVNode/, 'no static HTML strings: there is no HTML parser to insert them with')
   assert.throws(() => code('<template><div/></template><style lang="scss">a { b { c: d } }</style>'), /scss/)
+  assert.throws(() => code('<script setup lang="tsx">const a = 1</script><template><div/></template>'), /tsx/, 'JSX needs a transform')
+  assert.throws(() => code('<script lang="jsx">export default {}</script><template><div/></template>'), /jsx/)
   assert.throws(() => code('<template lang="pug">div</template>'), /pug/, 'a template language is an error, not HTML')
   assert.throws(() => code('<template><div/></template><style>.a { color: v-bind(c) }</style><script setup>const c = 1</script>'), /v-bind/, 'v-bind() in <style> needs a browser')
   assert.throws(() => code('<template><div/></template><style module>.a{color:red}</style>'), /module/, 'CSS modules')
