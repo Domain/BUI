@@ -884,6 +884,55 @@ def test_setters_emit_and_regressions():
     frame.setLayout(q.QHBoxLayout())
     render(frame)
 
+def test_dates_and_times():
+    d = q.QDate(2024, 1, 31)
+    assert d.addMonths(1) == q.QDate(2024, 2, 29), "past the month's end: its last day (Qt)"
+    assert d.toString("dddd d MMMM yyyy") == "Wednesday 31 January 2024" and d.toString(q.Qt.ISODate) == "2024-01-31"
+    assert q.QDate.fromString("29 Feb 2024", "d MMM yyyy") == q.QDate(2024, 2, 29)
+    assert not q.QDate(2023, 2, 29).isValid() and q.QDate.isLeapYear(2024)
+    t = q.QTime(13, 5, 9)
+    assert t.toString("h:mm AP") == "1:05 PM" and q.QTime.fromString("1:05 pm", "h:mm ap") == q.QTime(13, 5)
+    assert t.addSecs(11 * 3600) == q.QTime(0, 5, 9), "wraps at midnight"
+    dt = q.QDateTime(d, t)
+    assert q.QDateTime.fromString(dt.toString(q.Qt.ISODate), q.Qt.ISODate) == dt
+    assert dt.addDays(1).date() == q.QDate(2024, 2, 1) and dt.secsTo(dt.addSecs(90)) == 90
+
+    e = q.QDateTimeEdit(dt)
+    assert e.text() == "2024-01-31 13:05" and e.sectionCount() == 5
+    dates = spy(e.dateChanged)
+    e.setCurrentSection(e.MonthSection)
+    e.stepBy(1)
+    assert e.date() == q.QDate(2024, 2, 29) and dates == [(q.QDate(2024, 2, 29),)]
+    e._fields[0][2].setValue(2025)  # the user changes the year field
+    assert e.date() == q.QDate(2025, 2, 28)
+    e.setDateRange(q.QDate(2025, 1, 1), q.QDate(2025, 1, 31))
+    assert e.date() == q.QDate(2025, 1, 31), "clamped into the range"
+    de = q.QDateEdit(q.QDate(2020, 5, 17))
+    de.setDisplayFormat("d MMM yyyy")
+    de._fields[1][2].setCurrentIndex(1)  # the month dropdown
+    assert de.date() == q.QDate(2020, 2, 17) and de.text() == "17 Feb 2020"
+    te = q.QTimeEdit(q.QTime(15, 30))
+    te.setDisplayFormat("h:mm AP")
+    assert te.text() == "3:30 PM" and te._fields[0][2].value() == 3
+    te._fields[2][2].setCurrentIndex(0)  # AM
+    assert te.time() == q.QTime(3, 30)
+    render(e)
+
+    c = q.QCalendarWidget()
+    c.setSelectedDate(q.QDate(2024, 2, 10))
+    assert (c.yearShown(), c.monthShown()) == (2024, 2) and c._days[0][1] == q.QDate(2024, 1, 29)
+    picked = spy(c.clicked)
+    c._pick(20)
+    assert c.selectedDate() == q.QDate(2024, 2, 18) and picked == [(q.QDate(2024, 2, 18),)]
+    pages = spy(c.currentPageChanged)
+    c.showNextMonth()
+    assert pages == [(2024, 3)]
+    c.setFirstDayOfWeek(q.Qt.Sunday)
+    assert c._heads[0].text() == "Sun"
+    c.setDateRange(q.QDate(2024, 3, 5), q.QDate(2024, 3, 25))
+    assert c.selectedDate() == q.QDate(2024, 3, 5), "the selection moves into the range"
+    render(c, 360, 300)
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

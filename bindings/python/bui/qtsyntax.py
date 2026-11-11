@@ -83,6 +83,8 @@ class Qt:
     ElideLeft, ElideRight, ElideMiddle, ElideNone = 0, 1, 2, 3
     NoArrow, UpArrow, DownArrow, LeftArrow, RightArrow = 0, 1, 2, 3, 4
     TopLeftCorner, TopRightCorner, BottomLeftCorner, BottomRightCorner = 0, 1, 2, 3
+    TextDate, ISODate, RFC2822Date, ISODateWithMs = 0, 1, 8, 9
+    Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Sunday = range(1, 8)
     white, black, red, green, blue, gray = "#ffffff", "#000000", "#ff0000", "#00ff00", \
         "#0000ff", "#808080"
 
@@ -2549,6 +2551,8 @@ from bui.qtviews import (QAbstractItemModel, QAbstractListModel, QAbstractTableM
                          QStandardItem, QStandardItemModel, QStringListModel, QTableView, QTreeView)
 from bui.qtdialogs import QDialogButtonBox, QInputDialog, QMessageBox  # noqa: E402,F401
 from bui.qtcore import QClipboard, QKeySequence, QSettings, QShortcut  # noqa: E402,F401
+from bui.qtdates import (QCalendarWidget, QDate, QDateEdit, QDateTime, QDateTimeEdit, QTime,  # noqa: E402,F401
+                         QTimeEdit)
 from bui.qtgui import (QContextMenuEvent, QCursor, QDoubleValidator, QFontMetrics,  # noqa: E402,F401
                        QFontMetricsF, QIntValidator, QPalette, QRegularExpression,
                        QRegularExpressionValidator, QResizeEvent, QScreen, QTimerEvent, QValidator)

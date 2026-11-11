@@ -5,7 +5,7 @@ gui/kernel): public methods, slots, signals and protected `*Event` handlers per 
 whether the `bui.qtsyntax` class of the same name has them. Model/view and dialog classes have
 no headers there, so they aren't counted.
 
-**Core widget classes:** 802 of 1555 names (52%). **All 142 classes:** 1092 of 3205 (34%).
+**Core widget classes:** 885 of 1555 names (57%). **All 142 classes:** 1176 of 3205 (37%).
 
 | Class | Has | Of | % | Missing |
 | --- | ---: | ---: | ---: | --- |
@@ -21,7 +21,7 @@ no headers there, so they aren't counted.
 | QApplicationStateChangeEvent (no class) | 0 | 1 | 0 | `applicationState` |
 | QBoxLayout ★ | 28 | 32 | 88 | `hasHeightForWidth`, `heightForWidth`, `minimumHeightForWidth`, `setGeometry` |
 | QButtonGroup | 18 | 18 | 100 | — |
-| QCalendarWidget (no class) ★ | 0 | 51 | 0 | `activated`, `calendar`, `clearMaximumDate`, `clearMinimumDate`, `clicked`, `currentPageChanged`, `dateEditAcceptDelay`, `dateTextFormat`, `firstDayOfWeek`, `headerTextFormat`, `horizontalHeaderFormat`, `isDateEditEnabled`, `isGridVisible`, `isNavigationBarVisible`, `keyPressEvent`, `maximumDate`, `minimumDate`, `minimumSizeHint`, `monthShown`, `mousePressEvent`, `resizeEvent`, `selectedDate`, `selectionChanged`, `selectionMode`, `setCalendar`, `setCurrentPage`, `setDateEditAcceptDelay`, `setDateEditEnabled`, `setDateRange`, `setDateTextFormat`, `setFirstDayOfWeek`, `setGridVisible`, `setHeaderTextFormat`, `setHorizontalHeaderFormat`, `setMaximumDate`, `setMinimumDate`, `setNavigationBarVisible`, `setSelectedDate`, `setSelectionMode`, `setVerticalHeaderFormat` … |
+| QCalendarWidget ★ | 37 | 51 | 73 | `calendar`, `dateEditAcceptDelay`, `dateTextFormat`, `headerTextFormat`, `isDateEditEnabled`, `setCalendar`, `setDateEditAcceptDelay`, `setDateEditEnabled`, `setDateTextFormat`, `setHeaderTextFormat`, `setVerticalHeaderFormat`, `setWeekdayTextFormat`, `verticalHeaderFormat`, `weekdayTextFormat` |
 | QCheckBox ★ | 8 | 10 | 80 | `isTristate`, `setTristate` |
 | QChildWindowEvent (no class) | 0 | 1 | 0 | `child` |
 | QClipboard | 6 | 18 | 33 | `findBufferChanged`, `image`, `mimeData`, `ownsClipboard`, `ownsFindBuffer`, `ownsSelection`, `pixmap`, `selectionChanged`, `setImage`, `setMimeData`, `setPixmap`, `supportsFindBuffer` |
@@ -29,8 +29,8 @@ no headers there, so they aren't counted.
 | QCommandLinkButton (no class) | 0 | 7 | 0 | `description`, `heightForWidth`, `initStyleOption`, `minimumSizeHint`, `paintEvent`, `setDescription`, `sizeHint` |
 | QContextMenuEvent | 5 | 7 | 71 | `globalX`, `globalY` |
 | QCursor | 2 | 10 | 20 | `bitmap`, `d`, `hotSpot`, `mask`, `pixmap`, `setPos`, `setShape`, `swap` |
-| QDateEdit (no class) | 0 | 1 | 0 | `userDateChanged` |
-| QDateTimeEdit (no class) ★ | 0 | 60 | 0 | `calendar`, `calendarPopup`, `calendarWidget`, `clear`, `clearMaximumDate`, `clearMaximumDateTime`, `clearMaximumTime`, `clearMinimumDate`, `clearMinimumDateTime`, `clearMinimumTime`, `currentSection`, `currentSectionIndex`, `date`, `dateChanged`, `dateTime`, `dateTimeChanged`, `displayFormat`, `displayedSections`, `event`, `focusInEvent`, `keyPressEvent`, `maximumDate`, `maximumDateTime`, `maximumTime`, `minimumDate`, `minimumDateTime`, `minimumTime`, `mousePressEvent`, `paintEvent`, `sectionAt`, `sectionCount`, `sectionText`, `setCalendar`, `setCalendarPopup`, `setCalendarWidget`, `setCurrentSection`, `setCurrentSectionIndex`, `setDate`, `setDateRange`, `setDateTime` … |
+| QDateEdit | 1 | 1 | 100 | — |
+| QDateTimeEdit ★ | 46 | 60 | 77 | `calendar`, `calendarPopup`, `calendarWidget`, `clear`, `event`, `focusInEvent`, `setCalendar`, `setCalendarPopup`, `setCalendarWidget`, `setSelectedSection`, `setTimeSpec`, `setTimeZone`, `timeSpec`, `timeZone` |
 | QDial | 7 | 14 | 50 | `notchSize`, `notchTarget`, `notchesVisible`, `setNotchTarget`, `setNotchesVisible`, `setWrapping`, `wrapping` |
 | QDialogButtonBox | 17 | 20 | 85 | `changeEvent`, `standardButtonShortcut`, `standardButtonText` |
 | QDockWidget ★ | 15 | 22 | 68 | `changeEvent`, `dockLocation`, `setDockLocation`, `setFloating`, `setTitleBarWidget`, `titleBarWidget`, `topLevelChanged` |
@@ -132,7 +132,7 @@ no headers there, so they aren't counted.
 | QTapGesture (no class) | 0 | 2 | 0 | `position`, `setPosition` |
 | QTextBrowser (no class) | 0 | 33 | 0 | `anchorClicked`, `backward`, `backwardAvailable`, `backwardHistoryCount`, `clearHistory`, `focusOutEvent`, `forward`, `forwardAvailable`, `forwardHistoryCount`, `highlighted`, `historyChanged`, `historyTitle`, `historyUrl`, `home`, `isBackwardAvailable`, `isForwardAvailable`, `keyPressEvent`, `loadResource`, `mouseMoveEvent`, `mousePressEvent`, `mouseReleaseEvent`, `openExternalLinks`, `openLinks`, `paintEvent`, `reload`, `searchPaths`, `setOpenExternalLinks`, `setOpenLinks`, `setSearchPaths`, `setSource`, `source`, `sourceChanged`, `sourceType` |
 | QTextEdit ★ | 24 | 113 | 21 | `acceptRichText`, `alignment`, `anchorAt`, `autoFormatting`, `canPaste`, `changeEvent`, `copy`, `copyAvailable`, `createStandardContextMenu`, `currentCharFormat`, `currentCharFormatChanged`, `currentFont`, `cursorForPosition`, `cursorPositionChanged`, `cursorRect`, `cursorWidth`, `cut`, `document`, `documentTitle`, `dragEnterEvent`, `dragLeaveEvent`, `dragMoveEvent`, `dropEvent`, `ensureCursorVisible`, `extraSelections`, `find`, `focusInEvent`, `focusOutEvent`, `fontFamily`, `fontItalic`, `fontPointSize`, `fontUnderline`, `fontWeight`, `inputMethodEvent`, `inputMethodQuery`, `insertHtml`, `isReadOnly`, `isUndoRedoEnabled`, `lineWrapColumnOrWidth`, `lineWrapMode` … |
-| QTimeEdit (no class) | 0 | 1 | 0 | `userTimeChanged` |
+| QTimeEdit | 0 | 1 | 0 | `userTimeChanged` |
 | QToolBar ★ | 12 | 35 | 34 | `actionAt`, `actionEvent`, `actionGeometry`, `allowedAreas`, `allowedAreasChanged`, `changeEvent`, `iconSize`, `iconSizeChanged`, `insertSeparator`, `isAreaAllowed`, `isFloatable`, `isFloating`, `isMovable`, `movableChanged`, `orientationChanged`, `setAllowedAreas`, `setFloatable`, `setIconSize`, `setMovable`, `setOrientation`, `toggleViewAction`, `topLevelChanged`, `visibilityChanged` |
 | QToolBarChangeEvent (no class) | 0 | 1 | 0 | `toggle` |
 | QToolBox ★ | 19 | 21 | 90 | `changeEvent`, `itemIcon` |
