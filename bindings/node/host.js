@@ -3,6 +3,7 @@
 //
 //   open(options)            the App and window a `render(..., options)` opens
 //   blenderWidgets(wrap)     Blender's widgets as the framework's components
+//   styleRegistry()         scoped <style> blocks, added to each window once
 //   applyProps(el, prev, next)
 //                            JSX-style props (className, style, onClick ...)
 //                            onto an element: for prop-based renderers (React;
@@ -37,6 +38,41 @@ function blenderWidgets (wrap) {
     out[name] = C
   }
   return out
+}
+
+// ---- scoped stylesheets -------------------------------------------------------
+
+/** Components' scoped stylesheets (their `<style>` blocks) for the frameworks that compile them
+ *  into JavaScript: each one is added to a window once, as a `<style>` element, however many
+ *  instances show it. `add` registers one (a component's module calls it when it loads), `attach`
+ *  gives a window the registered ones, and those added later, until it closes. */
+function styleRegistry () {
+  const styles = new Map() // key (the component's file) -> CSS
+  const windows = new Map() // window with a root -> the keys added to it
+  const insert = (window) => {
+    const added = windows.get(window)
+    for (const [key, css] of styles) {
+      if (added.has(key)) continue
+      added.add(key)
+      const el = window.createElement('style')
+      el.textContent = css
+      window.body.insertBefore(el, window.body.firstChild)
+    }
+  }
+  return {
+    add (key, css) {
+      if (styles.has(key)) return
+      styles.set(key, css)
+      for (const window of windows.keys()) insert(window)
+    },
+    attach (window) {
+      if (!windows.has(window)) {
+        windows.set(window, new Set())
+        window.on('close', () => windows.delete(window))
+      }
+      insert(window)
+    },
+  }
 }
 
 // ---- JSX-style props ----------------------------------------------------------
@@ -123,4 +159,4 @@ function applyProps (el, prev, next) {
   if (c !== prev.children && isText(c)) el.textContent = String(c)
 }
 
-module.exports = { open, blenderWidgets, applyProps, isText, NO_PROPS, EVENTS }
+module.exports = { open, blenderWidgets, styleRegistry, applyProps, isText, NO_PROPS, EVENTS }
