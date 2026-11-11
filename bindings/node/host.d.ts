@@ -11,6 +11,9 @@ export function blenderWidgets<C> (wrap: (name: string) => C): Record<
   'Button' | 'Checkbox' | 'Radio' | 'NumberField' | 'NumberSlider' | 'TextField' | 'TextArea' | 'ColorSwatch' |
   'Dropdown' | 'ProgressBar', C>
 
+/** A 53-bit hash of `text` (cyrb53) in hex: a compiled component's cache file name or scope id. */
+export function hash (text: string): string
+
 /** Scoped `<style>` blocks of compiled components: `add(key, css)` when a component's module loads,
  *  `attach(window)` to give a window those (and the ones added later) as `<style>` elements, once each. */
 export function styleRegistry (): { add (key: string, css: string): void, attach (window: Window): void }

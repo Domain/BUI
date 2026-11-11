@@ -12,17 +12,37 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 import { createRequire } from 'node:module'
 import path from 'node:path'
+import fs from 'node:fs'
 import { fileURLToPath } from 'node:url'
+import host from '@blender-ui/native/host'
 
+const { hash } = host
 const require = createRequire(import.meta.url)
 const HERE = path.dirname(fileURLToPath(import.meta.url))
+const VERSION = require('vue/package.json').version
+
+/** The cache of compiled components, in the project's node_modules: the nearest one from the
+ *  working directory up; none, no cache. An app starts without loading Vue's compiler (most of
+ *  Vue's size) unless a component changed. */
+export const CACHE = (() => {
+  for (let dir = process.cwd(); ; dir = path.dirname(dir)) {
+    if (fs.existsSync(path.join(dir, 'node_modules'))) return path.join(dir, 'node_modules', '.cache', '@blender-ui', 'vue')
+    if (path.dirname(dir) === dir) return null
+  }
+})()
+// the compiled output's format: part of the cache key (bump it when this file's output changes)
+const FORMAT = 1
 
 /** Single-file components. */
 export const VUE_FILE = /\.vue$/
 /** This package, as compiled components import it: always this copy (one registry of styles),
- *  installed next to them or not. */
+ *  installed next to them or not. `require()` gets index.cjs, `import` index.js (see index.cjs). */
 export const SELF = /^@blender-ui\/vue$/
-export const selfFile = () => path.join(HERE, 'index.js')
+export const selfFile = (cjs = false) => path.join(HERE, cjs ? 'index.cjs' : 'index.js')
+/** `vue` and its subpaths: resolved from this package, wherever the importing file is, so that a
+ *  component outside the project (or a library with a Vue of its own) shares this package's one Vue
+ *  (two copies would have separate reactivity: a ref of one is not tracked by the other). */
+export const VUE_PACKAGE = /^vue(\/.*)?$/
 
 let sfc = null // vue/compiler-sfc, loaded on the first component (it is most of Vue's size)
 let compiler = null
@@ -77,24 +97,33 @@ function checkLanguages (descriptor, filename) {
   if (descriptor.styles.some((s) => s.module)) fail('<style module>')
 }
 
-/** A 32-bit hash of `s` (FNV-1a) as 8 hex digits: the scope id of a component, from its path. */
-function hash (s) {
-  let h = 0x811c9dc5
-  for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 0x01000193)
-  return (h >>> 0).toString(16).padStart(8, '0')
-}
-
 /**
  * The JavaScript of a `.vue` file. `lang="ts"` scripts come back as TypeScript when `keepTypes`
  * (Bun transpiles it), else with the types stripped (Node.js, `module.stripTypeScriptTypes`).
  * @returns {{ code: string, typescript: boolean }}
  */
 export function compileVue (source, filename, { keepTypes = false } = {}) {
+  if (CACHE === null) return compileNow(source, filename, keepTypes)
+  const key = `${hash(`${FORMAT}\0${VERSION}\0${keepTypes}\0${filename}\0${source}`)}-${source.length}`
+  const cached = path.join(CACHE, `${key}.json`)
+  try {
+    return JSON.parse(fs.readFileSync(cached, 'utf8'))
+  } catch {
+    const out = compileNow(source, filename, keepTypes)
+    try {
+      fs.mkdirSync(CACHE, { recursive: true })
+      fs.writeFileSync(cached, JSON.stringify(out))
+    } catch {} // a read-only place: no cache
+    return out
+  }
+}
+
+function compileNow (source, filename, keepTypes) {
   load()
   const { descriptor, errors } = sfc.parse(source, { filename })
   if (errors.length > 0) throw errors[0]
   checkLanguages(descriptor, filename)
-  const id = hash(filename)
+  const id = hash(filename).slice(0, 8)
   const scopeId = `data-v-${id}`
   const scoped = descriptor.styles.some((s) => s.scoped)
   const typescript = [descriptor.script, descriptor.scriptSetup].some((s) => s?.lang === 'ts' || s?.lang === 'tsx')

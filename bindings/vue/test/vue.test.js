@@ -2,10 +2,18 @@
 // v-model, v-for with keys, slots, provide/inject, scoped styles, lifecycle, plugins, TypeScript.
 import test from 'node:test'
 import assert from 'node:assert'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { spawnSync } from 'node:child_process'
+import { fileURLToPath, pathToFileURL } from 'node:url'
+import { createRequire } from 'node:module'
 import { render, createApp, createRoot, h, ref, onMounted, onUnmounted, nextTick, withModifiers, withKeys, Teleport, signal, Button, TextField } from '../index.js'
 import native from '@blender-ui/native'
+import * as ours from '../index.js'
 import { compileVue } from '../compile.js'
 import Counter from './fixtures/Counter.vue'
+import Example from '../examples/Counter.vue'
 import Form from './fixtures/Form.vue'
 import Raw from './fixtures/Raw.vue'
 import List from './fixtures/List.vue'
@@ -362,6 +370,76 @@ test('Vue: BUI signals bind attributes; the component does not re-render', async
   await tick()
   assert.strictEqual(el.getAttribute('data-c'), '#ff0000', 'the signal updated the attribute')
   assert.strictEqual(renders, 1, 'without a render')
+})
+
+test('Vue: the example fills its window: no white below the content or in the margin', async (t) => {
+  // the example's own body setup (examples/counter.js), applied to its component
+  const setup = /body\.className = '([^']+)'/.exec(fs.readFileSync(new URL('../examples/counter.js', import.meta.url), 'utf8'))
+  assert.ok(setup, 'examples/counter.js sets the body class')
+  let shared = null // one App at a time
+  const shotOf = async (bodyClass) => {
+    const r = open(t, Example, { width: 420, height: 300, ...(shared ? { app: shared } : {}) })
+    shared ??= r.app
+    const { window } = r
+    window.body.style = ''
+    window.body.setAttribute('styled', '')
+    window.body.className = bodyClass
+    await tick()
+    return window.screenshot()
+  }
+  const corners = (s) => [[2, 2], [417, 2], [2, 297], [417, 297], [210, 280]].map(([x, y]) => at(s, x, y).join())
+  assert.deepStrictEqual(new Set(corners(await shotOf(setup[1]))), new Set(['43,43,43']), 'the page color reaches every edge')
+  // what the class string without min-h-screen did: the color stopped at the content, white below
+  assert.strictEqual(at(await shotOf('m-0 bg-[#2b2b2b] text-[#e6e6e6]'), 210, 280).join(), '255,255,255', 'the cause: a body is only as tall as its content')
+})
+
+test('Vue: require() and import give the same package: BUI\'s render and createApp, Vue\'s everything else', () => {
+  // an ES module that does `export *` from a CommonJS one loses its own names to it under require():
+  // Vue's browser `render` came back (and returned nothing). index.cjs is what require() gets.
+  const vue = createRequire(import.meta.url)('vue')
+  const required = createRequire(import.meta.url)('..')
+  // by name, as an app does: the register hook maps the name to this copy, and must pick the right file
+  const byName = createRequire(import.meta.url)('@blender-ui/vue')
+  for (const [name, mod] of [['import', ours], ['require', required], ['require by name', byName]]) {
+    assert.notStrictEqual(mod.render, vue.render, `${name}: render is BUI's`)
+    assert.notStrictEqual(mod.createApp, vue.createApp, `${name}: createApp is BUI's`)
+    assert.strictEqual(mod.ref, vue.ref, `${name}: ref is Vue's own`)
+    assert.strictEqual(mod.h, vue.h, `${name}: h is Vue's own`)
+    assert.strictEqual(typeof mod.Button, 'function', `${name}: the widgets`)
+    assert.strictEqual(typeof mod.createRoot, 'function', `${name}: createRoot`)
+  }
+  assert.strictEqual(required.render, ours.render, 'one render, however the package is loaded')
+  assert.strictEqual(byName.render, ours.render)
+  assert.strictEqual(required.addStyle, ours.addStyle, 'one style registry')
+})
+
+test('Vue: compiled components are cached: a cached start does not load Vue\'s compiler', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bui-vue-cache-'))
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+  const file = path.join(dir, 'Fresh.vue')
+  fs.writeFileSync(file, `<template><div>${Date.now()}</div></template>`) // a component no run has compiled
+  const script = fileURLToPath(new URL('./fixtures/compile-once.mjs', import.meta.url))
+  const run = () => spawnSync(process.execPath, [script, file], { encoding: 'utf8', cwd: path.dirname(script) }).stdout.trim()
+  assert.strictEqual(run(), 'true', 'the first start compiles it, with Vue\'s compiler')
+  assert.strictEqual(run(), 'false', 'the next one reads the compiled file: no compiler loaded')
+  fs.writeFileSync(file, `<template><div>${Date.now()}!</div></template>`)
+  assert.strictEqual(run(), 'true', 'a changed component compiles again')
+})
+
+test('Vue: a component outside the project imports the same Vue as the package', async (t) => {
+  // no node_modules above it: `import 'vue'` resolves from this package, so there is one Vue
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bui-vue-outside-'))
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+  const file = path.join(dir, 'Outside.vue')
+  fs.writeFileSync(file, `<script setup>\nimport { ref, version } from 'vue'\nconst n = ref(1)\ndefineExpose({ n, version })\n</script>\n<template><div id="outside">{{ n }}</div></template>`)
+  const Outside = (await import(pathToFileURL(file).href)).default
+  const { window, component } = open(t, Outside)
+  await settle(window)
+  assert.strictEqual(finder(window)('outside').textContent, '1', 'it rendered')
+  assert.strictEqual(component.version, createRequire(import.meta.url)('vue').version, 'with the package\'s Vue')
+  component.n = 2
+  await nextTick()
+  assert.strictEqual(finder(window)('outside').textContent, '2', 'and its refs are tracked by the renderer\'s Vue')
 })
 
 test('Vue: Button, and what compile.js does to a template', () => {
