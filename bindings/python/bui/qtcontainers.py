@@ -397,6 +397,8 @@ class QDockWidget(QWidget):
     KIND = "panel"
     visibilityChanged = Signal(bool)
     featuresChanged = Signal(int)
+    allowedAreasChanged = Signal(int)
+    dockLocationChanged = Signal(int)
     DockWidgetClosable, DockWidgetMovable, DockWidgetFloatable = 0x01, 0x02, 0x04
     NoDockWidgetFeatures = 0
 
@@ -410,6 +412,7 @@ class QDockWidget(QWidget):
         self._widget = None
         self._features = self.DockWidgetClosable | self.DockWidgetMovable | self.DockWidgetFloatable
         self._toggle = None
+        self._areas = Qt.AllDockWidgetAreas
 
     def setWindowTitle(self, title):  # noqa: N802
         self._title = str(title)
@@ -436,6 +439,17 @@ class QDockWidget(QWidget):
         if features != self._features:
             self._features = features
             self.featuresChanged.emit(features)
+
+    def allowedAreas(self):  # noqa: N802
+        return self._areas
+
+    def setAllowedAreas(self, areas):  # noqa: N802
+        if int(areas) != self._areas:
+            self._areas = int(areas)
+            self.allowedAreasChanged.emit(self._areas)
+
+    def isAreaAllowed(self, area):  # noqa: N802
+        return bool(self._areas & int(area))
 
     def isFloating(self):  # noqa: N802
         return False  # docks stay docked in their window

@@ -65,25 +65,56 @@ class LineEditMore:
         return kept != good
 
 
-class SpinBoxMore:
-    """QSpinBox / QDoubleSpinBox (prefix is the Blender number field's label)."""
+class RangeMore:
+    """A value in a range on the kit's number widget (QAbstractSlider, QSpinBox)."""
 
-    def prefix(self):
-        return self.__dict__.get("_prefix_text", "")
+    def _setup(self):
+        self.set("integer", True)
+        self.set("precision", 0)
+        self.set("min", 0.0)
+        self.set("max", 99.0)
+        self.set("step", 1.0)
 
-    def setPrefix(self, p):  # noqa: N802
-        self.__dict__["_prefix_text"] = str(p)
-        self.set("label", str(p).rstrip(": "))
+    def setRange(self, lo, hi):  # noqa: N802
+        self.set("min", float(lo))
+        self.set("max", float(hi))
+        if getattr(type(self), "rangeChanged", None) is not None:
+            self.rangeChanged.emit(lo, hi)
 
-    def suffix(self):
-        return self.__dict__.get("_suffix", "")
+    def setMinimum(self, v):  # noqa: N802
+        self.setRange(v, max(v, self.maximum()))
 
-    def setSuffix(self, s):  # noqa: N802
-        self.__dict__["_suffix"] = str(s)
-        self.set("suffix", str(s))
+    def setMaximum(self, v):  # noqa: N802
+        self.setRange(min(v, self.minimum()), v)
+
+    def minimum(self):
+        return self._num(self.get("min"))
+
+    def maximum(self):
+        return self._num(self.get("max"))
+
+    def value(self):
+        return self._num(self.get("value"))
+
+    def setValue(self, v):  # noqa: N802
+        self.set("set_value", float(v))
+
+    def setSingleStep(self, s):  # noqa: N802
+        self.set("step", float(s))
 
     def singleStep(self):  # noqa: N802
         return self._num(self.get("step"))
+
+    @staticmethod
+    def _num(v):
+        return int(round(v))
+
+
+class AbstractSpinBoxMore:
+    """QAbstractSpinBox: stepping (wrapping at the ends), the special value text, a frame (Blender's
+    emboss), read-only, and validating text against the range."""
+    UpDownArrows, PlusMinus, NoButtons = 0, 1, 2
+    StepNone, StepUpEnabled, StepDownEnabled = 0, 1, 2
 
     def wrapping(self):
         return self.__dict__.get("_wrap", False)
@@ -103,6 +134,13 @@ class SpinBoxMore:
     def setReadOnly(self, b):  # noqa: N802
         self.setEnabled(not b)
 
+    def hasFrame(self):  # noqa: N802
+        return self.__dict__.get("_frame", True)
+
+    def setFrame(self, b):  # noqa: N802
+        self.__dict__["_frame"] = bool(b)
+        self.set("emboss", bool(b))
+
     def stepBy(self, steps):  # noqa: N802
         lo, hi = self.minimum(), self.maximum()
         v = self.value() + steps * self.singleStep()
@@ -117,6 +155,55 @@ class SpinBoxMore:
     def stepDown(self):  # noqa: N802
         self.stepBy(-1)
 
+    def stepEnabled(self):  # noqa: N802
+        if self.isReadOnly():
+            return self.StepNone
+        if self.wrapping():
+            return self.StepUpEnabled | self.StepDownEnabled
+        return ((self.StepUpEnabled if self.value() < self.maximum() else 0)
+                | (self.StepDownEnabled if self.value() > self.minimum() else 0))
+
+    def text(self):
+        if self.specialValueText() and self.value() == self.minimum():
+            return self.specialValueText()
+        return self.prefix() + self.cleanText() + self.suffix()
+
+    def validate(self, text, pos=0):
+        """Acceptable when the text (without prefix and suffix) is a number in the range."""
+        from bui.qtgui import QValidator
+        t = str(text).removeprefix(self.prefix()).removesuffix(self.suffix()).strip()
+        try:
+            v = self.valueFromText(t)
+        except ValueError:
+            return (QValidator.Intermediate if t in ("", "-", "+", ".") else QValidator.Invalid, text, pos)
+        return (QValidator.Acceptable if self.minimum() <= v <= self.maximum() else QValidator.Intermediate,
+                text, pos)
+
+    def fixup(self, text):
+        return text
+
+    def hasAcceptableInput(self):  # noqa: N802
+        from bui.qtgui import QValidator
+        return self.validate(self.text())[0] == QValidator.Acceptable
+
+
+class SpinBoxMore:
+    """QSpinBox / QDoubleSpinBox (prefix is the Blender number field's label)."""
+
+    def prefix(self):
+        return self.__dict__.get("_prefix_text", "")
+
+    def setPrefix(self, p):  # noqa: N802
+        self.__dict__["_prefix_text"] = str(p)
+        self.set("label", str(p).rstrip(": "))
+
+    def suffix(self):
+        return self.__dict__.get("_suffix", "")
+
+    def setSuffix(self, s):  # noqa: N802
+        self.__dict__["_suffix"] = str(s)
+        self.set("suffix", str(s))
+
     def textFromValue(self, v):  # noqa: N802
         return str(int(v))
 
@@ -125,15 +212,6 @@ class SpinBoxMore:
 
     def cleanText(self):  # noqa: N802
         return self.textFromValue(self.value())
-
-    def text(self):
-        if self.specialValueText() and self.value() == self.minimum():
-            return self.specialValueText()
-        return self.prefix() + self.cleanText() + self.suffix()
-
-    @staticmethod
-    def _num(v):
-        return int(round(v))
 
 
 class DoubleSpinBoxMore(SpinBoxMore):
@@ -150,12 +228,6 @@ class DoubleSpinBoxMore(SpinBoxMore):
     def valueFromText(self, text):  # noqa: N802
         return float(text)
 
-    def minimum(self):
-        return float(self.get("min"))
-
-    def maximum(self):
-        return float(self.get("max"))
-
     @staticmethod
     def _num(v):
         return float(v)
@@ -166,8 +238,44 @@ class SliderMore:
     (SliderNoAction, SliderSingleStepAdd, SliderSingleStepSub, SliderPageStepAdd, SliderPageStepSub,
      SliderToMinimum, SliderToMaximum, SliderMove) = range(8)
 
-    def singleStep(self):  # noqa: N802
-        return int(round(self.get("step")))
+    def orientation(self):
+        from bui.qtsyntax import Qt
+        return self.__dict__.get("_orientation", Qt.Horizontal)
+
+    def setOrientation(self, o):  # noqa: N802
+        """Kept: Blender's number sliders are horizontal."""
+        self.__dict__["_orientation"] = int(o)
+
+    def hasTracking(self):  # noqa: N802
+        return self.__dict__.get("_tracking", True)
+
+    def setTracking(self, b):  # noqa: N802
+        """Without tracking valueChanged waits until the slider is released (sliderMoved still follows it)."""
+        self.__dict__["_tracking"] = bool(b)
+        if not b:
+            self.set("events", True)  # the press and release come through
+
+    def isSliderDown(self):  # noqa: N802
+        return self.__dict__.get("_down", False)
+
+    def setSliderDown(self, down):  # noqa: N802
+        if bool(down) == self.isSliderDown():
+            return
+        self.__dict__["_down"] = bool(down)
+        if down:
+            self.sliderPressed.emit()
+            return
+        self.sliderReleased.emit()
+        if self.__dict__.pop("_pending", False):
+            self.valueChanged.emit(self.value())
+
+    def _moved(self):
+        """The kit changed the value (dragged or typed)."""
+        self.sliderMoved.emit(self.value())
+        if self.hasTracking() or not self.isSliderDown():
+            self.valueChanged.emit(self.value())
+        else:
+            self.__dict__["_pending"] = True
 
     def pageStep(self):  # noqa: N802
         return self.__dict__.get("_page", 10)
@@ -217,7 +325,42 @@ class ComboBoxMore:
 
     def setItemText(self, i, text):  # noqa: N802
         self._items[i] = str(text)
+        self._sync()
+
+    def itemIcon(self, i):  # noqa: N802
+        from bui.qtsyntax import QIcon
+        return self._icons[i] or QIcon()
+
+    def setItemIcon(self, i, icon):  # noqa: N802
+        self._icons[i] = icon
+        self._sync()
+
+    def _sync(self):
+        """The items (and their icons, when any has one) on the kit's dropdown."""
         self.set("items", self._items)
+        if any(self._icons):
+            self.set("icons", [getattr(ic, "name", "") or "NONE" for ic in self._icons])
+
+    def showPopup(self):  # noqa: N802
+        """Blender's enum menu below the combo box; picking an item is as choosing it in the dropdown."""
+        ctx = self.window()._ctx
+        if ctx is None or not self._items:
+            return
+        from bui.components.menus import MenuItem
+        items = [MenuItem(t, (lambda i=i: self._pick(i)), icon=getattr(ic, "name", "") or None)
+                 for i, (t, ic) in enumerate(zip(self._items, self._icons))]
+        x, y = self.absolutePos()
+        ctx.open_menu(None, items, None, (x, y + self.height()))
+
+    def hidePopup(self):  # noqa: N802
+        ctx = self.window()._ctx
+        if ctx is not None:
+            ctx.close_popups()
+
+    def _pick(self, i):
+        from bui.components.core import EV_CHANGE
+        self.setCurrentIndex(i)
+        self._event(EV_CHANGE, None, i, 0)
 
     def setItemData(self, i, value, role=None):  # noqa: N802
         self._data[i] = value
@@ -270,7 +413,8 @@ class ComboBoxMore:
         rows = [m.index(r, col) for r in range(m.rowCount())]
         self._items = ["" if m.data(i, Qt.DisplayRole) is None else str(m.data(i, Qt.DisplayRole)) for i in rows]
         self._data = [m.data(i, Qt.UserRole) for i in rows]
-        self.set("items", self._items)
+        self._icons = [None] * len(rows)
+        self._sync()
 
 
 class TabWidgetMore:

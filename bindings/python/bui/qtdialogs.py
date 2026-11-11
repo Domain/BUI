@@ -1,15 +1,15 @@
-"""QMessageBox and QInputDialog: real dialogs, built from Qt's own widgets and shown as BUI windows
-with Blender's icons (info, question, the warning triangle, cancel).
+"""QDialogButtonBox, QMessageBox and QInputDialog: real dialogs, built from Qt's own widgets and shown as
+BUI windows with Blender's icons (info, question, the warning triangle, cancel).
 
 SPDX-License-Identifier: GPL-2.0-or-later
 """
 
-from bui.qtsyntax import (QComboBox, QDialog, QDoubleSpinBox, QHBoxLayout, QLabel, QLineEdit,
-                          QPushButton, QSpinBox, QVBoxLayout, QWidget, Signal)
+from bui.qtsyntax import (QBoxLayout, QComboBox, QDialog, QDoubleSpinBox, QHBoxLayout, QLabel, QLineEdit,
+                          QPushButton, QSpinBox, QVBoxLayout, QWidget, Qt, Signal)
 
 
-class QMessageBox(QDialog):
-    NoIcon, Information, Warning, Critical, Question = 0, 1, 2, 3, 4
+class _Standard:
+    """Qt's standard buttons: their codes, texts and roles (QDialogButtonBox and QMessageBox share them)."""
     NoButton = 0
     Ok, Save, SaveAll, Open, Yes, YesToAll, No, NoToAll = (0x400, 0x800, 0x1000, 0x2000, 0x4000, 0x8000,
                                                           0x10000, 0x20000)
@@ -17,21 +17,143 @@ class QMessageBox(QDialog):
                                                          0x800000, 0x1000000)
     Apply, Reset, RestoreDefaults = 0x2000000, 0x4000000, 0x8000000
     StandardButton = int
-    AcceptRole, RejectRole, DestructiveRole, ActionRole, HelpRole, YesRole, NoRole, ApplyRole, ResetRole = range(9)
-    buttonClicked = Signal(object)
+    InvalidRole = -1
+    AcceptRole, RejectRole, DestructiveRole, ActionRole, HelpRole, YesRole, NoRole, ResetRole, ApplyRole = range(9)
 
     _TEXT = {Ok: "OK", Save: "Save", SaveAll: "Save All", Open: "Open", Yes: "Yes", YesToAll: "Yes to All",
              No: "No", NoToAll: "No to All", Abort: "Abort", Retry: "Retry", Ignore: "Ignore", Close: "Close",
              Cancel: "Cancel", Discard: "Discard", Help: "Help", Apply: "Apply", Reset: "Reset",
              RestoreDefaults: "Restore Defaults"}
-    _ICON = {Information: "INFO", Warning: "ERROR", Critical: "CANCEL", Question: "QUESTION"}
+    _ROLE = {Yes: YesRole, YesToAll: YesRole, No: NoRole, NoToAll: NoRole, Abort: RejectRole, Close: RejectRole,
+             Cancel: RejectRole, Discard: DestructiveRole, Help: HelpRole, Apply: ApplyRole, Reset: ResetRole,
+             RestoreDefaults: ResetRole}
     _ESCAPE = (Cancel, No, Close, Abort, Ignore)
+
+
+class QDialogButtonBox(_Standard, QWidget):
+    """A dialog's row of buttons (Blender's popup confirm row): standard ones by code, or your own with a
+    role; clicking one emits clicked, and accepted / rejected / helpRequested by its role."""
+    clicked = Signal(object)
+    accepted = Signal()
+    rejected = Signal()
+    helpRequested = Signal()
+
+    def __init__(self, *args, parent=None):
+        """QDialogButtonBox([buttons][, orientation][, parent])."""
+        args = list(args)
+        buttons = args.pop(0) if args and isinstance(args[0], int) and args[0] >= self.Ok else 0
+        orientation = args.pop(0) if args and isinstance(args[0], int) else Qt.Horizontal
+        super().__init__(args[0] if args else parent)
+        self._buttons = []  # (button, standard code or None, role)
+        self._center = False
+        self._orientation = orientation
+        self._box = QBoxLayout(QBoxLayout.LeftToRight if orientation == Qt.Horizontal else QBoxLayout.TopToBottom,
+                               self)
+        self._box.setContentsMargins(0)
+        self.setStandardButtons(buttons)
+
+    def addButton(self, button, role=None):  # noqa: N802 - (standard code) / (text, role) / (button, role)
+        code = None
+        if isinstance(button, int):
+            code, button, role = button, QPushButton(self._TEXT.get(button, "")), self._ROLE.get(button,
+                                                                                                  self.AcceptRole)
+        elif isinstance(button, str):
+            button = QPushButton(button)
+        if role is None or role == self.InvalidRole:
+            return None if not isinstance(button, QPushButton) else button
+        button.clicked.connect(lambda *_: self._click(button))
+        self._buttons.append((button, code, role))
+        self._arrange()
+        return button
+
+    def removeButton(self, button):  # noqa: N802
+        entry = next((x for x in self._buttons if x[0] is button), None)
+        if entry is not None:
+            self._buttons.remove(entry)
+            self._box.removeWidget(button)
+            self._arrange()
+
+    def clear(self):
+        for b in self.buttons():
+            self.removeButton(b)
+
+    def setStandardButtons(self, buttons):  # noqa: N802
+        for entry in [x for x in self._buttons if x[1] is not None]:
+            self.removeButton(entry[0])
+        for code in sorted(self._TEXT):
+            if buttons & code:
+                self.addButton(code)
+
+    def standardButtons(self):  # noqa: N802
+        out = 0
+        for _, code, _ in self._buttons:
+            out |= code or 0
+        return out
+
+    def standardButton(self, button):  # noqa: N802
+        return next((code or self.NoButton for b, code, _ in self._buttons if b is button), self.NoButton)
+
+    def button(self, code):
+        return next((b for b, c, _ in self._buttons if c == code), None)
+
+    def buttons(self):
+        return [b for b, _, _ in self._buttons]
+
+    def buttonRole(self, button):  # noqa: N802
+        return next((r for b, _, r in self._buttons if b is button), self.InvalidRole)
+
+    def centerButtons(self):  # noqa: N802
+        return self._center
+
+    def setCenterButtons(self, b):  # noqa: N802
+        self._center = bool(b)
+        self._arrange()
+
+    def orientation(self):
+        return self._orientation
+
+    def setOrientation(self, o):  # noqa: N802
+        self._orientation = o
+        self._box.setDirection(QBoxLayout.LeftToRight if o == Qt.Horizontal else QBoxLayout.TopToBottom)
+
+    def _arrange(self):
+        """Help first, then the rest at the end of the row (or centered)."""
+        while self._box.count():
+            self._box.takeAt(0)
+        order = sorted(self._buttons, key=lambda x: x[2] != self.HelpRole)
+        if not self._center:
+            for b, _, role in order:
+                if role == self.HelpRole:
+                    self._box.addWidget(b)
+            self._box.addStretch()
+            order = [x for x in order if x[2] != self.HelpRole]
+        else:
+            self._box.addStretch()
+        for b, _, _ in order:
+            self._box.addWidget(b)
+        if self._center:
+            self._box.addStretch()
+
+    def _click(self, button):
+        self.clicked.emit(button)
+        role = self.buttonRole(button)
+        if role in (self.AcceptRole, self.YesRole):
+            self.accepted.emit()
+        elif role in (self.RejectRole, self.NoRole):
+            self.rejected.emit()
+        elif role == self.HelpRole:
+            self.helpRequested.emit()
+
+
+class QMessageBox(_Standard, QDialog):
+    NoIcon, Information, Warning, Critical, Question = 0, 1, 2, 3, 4
+    buttonClicked = Signal(object)
+    _ICON = {Information: "INFO", Warning: "ERROR", Critical: "CANCEL", Question: "QUESTION"}
 
     def __init__(self, icon=0, title="", text="", buttons=0, parent=None):
         if isinstance(icon, QWidget):
             icon, parent = 0, icon
         super().__init__(parent)
-        self._buttons = []  # (button, standard code or None, role)
         self._clicked = None
         self._default = None
         self._escape = None
@@ -48,8 +170,9 @@ class QMessageBox(QDialog):
         body.addWidget(self._icon_label)
         body.addLayout(texts)
         root.addLayout(body)
-        self._row = QHBoxLayout()
-        root.addLayout(self._row)
+        self._box = QDialogButtonBox()
+        self._box.clicked.connect(self._click)
+        root.addWidget(self._box)
         self.setIcon(icon)
         self.setWindowTitle(str(title))
         self.setStandardButtons(buttons)
@@ -82,54 +205,32 @@ class QMessageBox(QDialog):
         self._icon_label.set("icon", self._ICON.get(icon, ""))
         self._icon_label.setVisible(icon in self._ICON)
 
-    # -- buttons -----------------------------------------------------------------------------------------
-    def addButton(self, button, role=None):  # noqa: N802 - (standard code) / (text, role) / (button, role)
-        code = None
-        if isinstance(button, int):
-            code, button, role = button, QPushButton(self._TEXT.get(button, "")), self._role(button)
-        elif isinstance(button, str):
-            button = QPushButton(button)
-        button.clicked.connect(lambda *_: self._click(button))
-        self._buttons.append((button, code, role))
-        self._row.addWidget(button)
-        return button
+    # -- buttons: the button box's ---------------------------------------------------------------------------
+    def addButton(self, button, role=None):  # noqa: N802
+        return self._box.addButton(button, role)
 
-    def _role(self, code):
-        if code in (self.Yes, self.YesToAll):
-            return self.YesRole
-        if code in (self.No, self.NoToAll):
-            return self.NoRole
-        if code in self._ESCAPE:
-            return self.RejectRole
-        return self.AcceptRole
+    def removeButton(self, button):  # noqa: N802
+        self._box.removeButton(button)
 
     def setStandardButtons(self, buttons):  # noqa: N802
-        for entry in [x for x in self._buttons if x[1] is not None]:
-            entry[0].setParent(None)
-            self._buttons.remove(entry)
-        for code in sorted(self._TEXT):
-            if buttons & code:
-                self.addButton(code)
-        if not self._buttons:
-            self.addButton(self.Ok)
+        self._box.setStandardButtons(buttons)
+        if not self._box.buttons():
+            self._box.addButton(self.Ok)
 
     def standardButtons(self):  # noqa: N802
-        out = 0
-        for _, code, _ in self._buttons:
-            out |= code or 0
-        return out
+        return self._box.standardButtons()
 
     def standardButton(self, button):  # noqa: N802
-        return next((code or self.NoButton for b, code, _ in self._buttons if b is button), self.NoButton)
+        return self._box.standardButton(button)
 
     def button(self, code):
-        return next((b for b, c, _ in self._buttons if c == code), None)
+        return self._box.button(code)
 
     def buttons(self):
-        return [b for b, _, _ in self._buttons]
+        return self._box.buttons()
 
     def buttonRole(self, button):  # noqa: N802
-        return next((r for b, _, r in self._buttons if b is button), -1)
+        return self._box.buttonRole(button)
 
     def clickedButton(self):  # noqa: N802
         return self._clicked
@@ -139,6 +240,8 @@ class QMessageBox(QDialog):
 
     def setDefaultButton(self, button):  # noqa: N802
         self._default = self.button(button) if isinstance(button, int) else button
+        if self._default is not None:
+            self._default.setDefault(True)
 
     def escapeButton(self):  # noqa: N802
         return self._escape
@@ -150,11 +253,11 @@ class QMessageBox(QDialog):
         self._clicked = button
         self.buttonClicked.emit(button)
         code = self.standardButton(button)
-        self.done(code if code else self._buttons.index(next(x for x in self._buttons if x[0] is button)))
+        self.done(code if code else self.buttons().index(button))
 
     def _close_requested(self):
         # closing the window picks the escape button: Cancel, No ... as Qt does
-        esc = self._escape or next((b for b, c, _ in self._buttons if c in self._ESCAPE), None)
+        esc = self._escape or next((b for b, c, _ in self._box._buttons if c in self._ESCAPE), None)
         if esc is not None and self._clicked is None:
             self._clicked = esc
             self.setResult(self.standardButton(esc))
@@ -216,13 +319,10 @@ class QInputDialog(QDialog):
         self._text.textChanged.connect(self.textValueChanged.emit)
         self._int.valueChanged.connect(self.intValueChanged.emit)
         self._double.valueChanged.connect(self.doubleValueChanged.emit)
-        row = QHBoxLayout()
-        ok, cancel = QPushButton("OK"), QPushButton("Cancel")
-        ok.clicked.connect(lambda *_: self.accept())
-        cancel.clicked.connect(lambda *_: self.reject())
-        row.addWidget(ok)
-        row.addWidget(cancel)
-        root.addLayout(row)
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        root.addWidget(buttons)
         self._list_mode = False
         self._show_editor()
 

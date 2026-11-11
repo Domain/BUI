@@ -1,6 +1,8 @@
 """Qt syntax beyond the basic widgets: containers (QStackedWidget, QToolBox, QSplitter, QToolBar,
-QDockWidget, QTabBar, QMainWindow's docks and toolbars), model/view, QMessageBox / QInputDialog,
-QSettings, QKeySequence / QShortcut, QClipboard and QObject / QWidget behavior. Headless: widgets
+QDockWidget, QTabBar, QFrame, QGroupBox, QScrollArea, QStatusBar, QMainWindow's docks and toolbars),
+actions, menus, tool buttons and button groups, layouts, model/view, QDialogButtonBox / QMessageBox /
+QInputDialog, input widget details (validators, spin boxes, sliders), QSettings, QKeySequence /
+QShortcut, QClipboard and QObject / QWidget / QApplication behavior. Headless: widgets
 lay out and render into a raster, no window opens.
 
 SPDX-License-Identifier: GPL-2.0-or-later
@@ -744,6 +746,76 @@ def test_frames_groups_scroll_status():
     bar.clearMessage()
     assert normal.isVisible() and msgs == [("Saved",), ("",)]
     render(bar)
+
+def test_spin_boxes_sliders_and_button_box():
+    s = q.QSpinBox()
+    assert isinstance(s, q.QAbstractSpinBox) and not isinstance(s, q.QAbstractSlider)
+    s.setRange(0, 5)
+    s.setValue(5)
+    assert s.stepEnabled() == s.StepDownEnabled
+    s.setWrapping(True)
+    assert s.stepEnabled() == s.StepUpEnabled | s.StepDownEnabled
+    s.setSuffix(" px")
+    from bui.qtgui import QValidator
+    assert s.validate("3 px")[0] == QValidator.Acceptable and s.validate("9")[0] == QValidator.Intermediate
+    assert s.validate("x")[0] == QValidator.Invalid and s.hasAcceptableInput()
+    s.setFrame(False)
+    assert not s.hasFrame()
+    d = q.QDoubleSpinBox()
+    d.setRange(0.5, 2.5)
+    assert d.minimum() == 0.5 and isinstance(d.maximum(), float)
+
+    sl = q.QSlider(q.Qt.Vertical)
+    assert sl.orientation() == q.Qt.Vertical
+    sl.setTracking(False)
+    values, moved = spy(sl.valueChanged), spy(sl.sliderMoved)
+    sl._on_event(EV_PRESS, "0 1", 0, 0)
+    sl.setValue(10)
+    sl._event(EV_CHANGE, None, 0, 0)
+    assert sl.isSliderDown() and moved == [(10,)] and values == [], "no valueChanged while held"
+    from bui.components.core import EV_RELEASE
+    sl._on_event(EV_RELEASE, "0 1", 0, 0)
+    assert not sl.isSliderDown() and values == [(10,)], "released: the value is final"
+
+    box = q.QDialogButtonBox(q.QDialogButtonBox.Ok | q.QDialogButtonBox.Cancel | q.QDialogButtonBox.Help)
+    got = spy(box.accepted), spy(box.rejected), spy(box.helpRequested)
+    box.button(box.Ok).click()
+    box.button(box.Cancel).click()
+    box.button(box.Help).click()
+    assert [len(g) for g in got] == [1, 1, 1]
+    apply = box.addButton("Apply now", box.ApplyRole)
+    assert box.buttonRole(apply) == box.ApplyRole and box.standardButton(apply) == box.NoButton
+    assert box.standardButtons() == box.Ok | box.Cancel | box.Help
+    box.removeButton(apply)
+    assert apply not in box.buttons()
+    render(box)
+
+
+def test_combo_icons_docks_application():
+    c = q.QComboBox()
+    c.addItem(q.QIcon.fromTheme("FILE") if hasattr(q.QIcon, "fromTheme") else q.QIcon(), "File", 1)
+    c.addItem("Plain")
+    c.setItemIcon(1, q.QIcon())
+    assert c.count() == 2 and c.itemData(0) == 1 and c.itemText(0) == "File"
+    picked = spy(c.activated)
+    c._pick(1)
+    assert c.currentIndex() == 1 and picked == [(1,)]
+
+    win = q.QMainWindow()
+    dock = q.QDockWidget("Tools")
+    dock.setAllowedAreas(q.Qt.LeftDockWidgetArea | q.Qt.RightDockWidgetArea)
+    assert dock.isAreaAllowed(q.Qt.LeftDockWidgetArea) and not dock.isAreaAllowed(q.Qt.TopDockWidgetArea)
+    where = spy(dock.dockLocationChanged)
+    win.addDockWidget(q.Qt.RightDockWidgetArea, dock)
+    assert where == [(q.Qt.RightDockWidgetArea,)]
+
+    font = q.QFont("Sans", 14)
+    q.QApplication.setFont(font)
+    try:
+        assert q.QWidget().font() is font, "widgets default to the application's font"
+    finally:
+        q.QApplication.setFont(None)
+    assert win in q.QApplication.topLevelWidgets() and dock not in q.QApplication.topLevelWidgets()
 
 if __name__ == "__main__":
     for name, fn in list(globals().items()):

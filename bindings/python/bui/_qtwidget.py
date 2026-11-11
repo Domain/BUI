@@ -444,8 +444,8 @@ class QWidgetMore:
 
     # -- fonts and colors ---------------------------------------------------------------------------------
     def font(self):
-        from bui.qtsyntax import QFont
-        return self.__dict__.get("_font") or QFont()
+        from bui.qtsyntax import QApplication
+        return self.__dict__.get("_font") or QApplication.font()
 
     def fontMetrics(self):  # noqa: N802
         from bui.qtgui import QFontMetrics

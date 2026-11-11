@@ -30,7 +30,7 @@ from typing import Callable, List, Optional
 import buipy
 
 from bui import _realtk, filebrowser, host
-from bui._qtinputs import (AbstractButtonMore, ComboBoxMore, DoubleSpinBoxMore, LabelMore, LineEditMore, ProgressBarMore,
+from bui._qtinputs import (AbstractButtonMore, AbstractSpinBoxMore, ComboBoxMore, DoubleSpinBoxMore, LabelMore, LineEditMore, ProgressBarMore, RangeMore,
                            PushButtonMore, SliderMore, SpinBoxMore, TabWidgetMore)
 from bui._qtwidget import QWidgetMore
 from bui.components.core import (EV_ACTIVATE, EV_CHANGE, EV_CLICK, EV_CONFIGURE, EV_DOUBLE,  # noqa: F401
@@ -538,6 +538,66 @@ class QApplication:
         pass
 
     setStyleSheet = setStyle
+
+    _font = None
+    _palette = None
+
+    @staticmethod
+    def allWidgets():  # noqa: N802
+        import gc
+        return [o for o in gc.get_objects() if isinstance(o, QWidget)]
+
+    @staticmethod
+    def topLevelWidgets():  # noqa: N802
+        return [w for w in QApplication.allWidgets() if w.parentWidget() is None]
+
+    @staticmethod
+    def _open_windows():
+        return [w for w in QApplication.topLevelWidgets() if w._window is not None and w._window.is_open]
+
+    @staticmethod
+    def focusWidget():  # noqa: N802
+        """The widget with the keyboard focus, in any open window."""
+        for w in QApplication._open_windows():
+            focus = w._ctx.focus if w._ctx is not None else None
+            if isinstance(focus, QWidget):
+                return focus
+        return None
+
+    @staticmethod
+    def activeWindow():  # noqa: N802
+        focus = QApplication.focusWidget()
+        if focus is not None:
+            return focus.window()
+        windows = QApplication._open_windows()
+        return windows[0] if windows else None
+
+    @staticmethod
+    def closeAllWindows():  # noqa: N802
+        for w in QApplication._open_windows():
+            w.close()
+
+    @staticmethod
+    def font(*a):
+        return QApplication._font or QFont()
+
+    @staticmethod
+    def setFont(font, *a):  # noqa: N802
+        """The default font of widgets that have none of their own."""
+        QApplication._font = font
+
+    @staticmethod
+    def palette(*a):
+        from bui.qtgui import QPalette
+        return QPalette(QApplication._palette)
+
+    @staticmethod
+    def setPalette(palette, *a):  # noqa: N802
+        """Every window's colors (Window and WindowText) and the default palette of new ones."""
+        QApplication._palette = palette
+        for w in QApplication.topLevelWidgets():
+            if w.type in ("frame", "canvas"):  # the window's own background
+                w.setPalette(palette)
 
 
 QCoreApplication = QApplication
@@ -1242,6 +1302,7 @@ class QMainWindow(QWidget):
             dock.parent.remove(dock)
         self._docks.append((dock, area))
         self._repack()
+        dock.dockLocationChanged.emit(area)
 
     def removeDockWidget(self, dock):  # noqa: N802
         self._docks = [(d, a) for d, a in self._docks if d is not dock]
@@ -1585,55 +1646,27 @@ class QTextEdit(QWidget):
 QPlainTextEdit = QTextEdit
 
 
-class QAbstractSlider(SliderMore, QWidget):
+class QAbstractSlider(SliderMore, RangeMore, QWidget):
     actionTriggered = Signal(int)
     valueChanged = Signal(int)
     sliderMoved = Signal(int)
+    sliderPressed = Signal()
     sliderReleased = Signal()
     rangeChanged = Signal(int, int)
-
-    def _setup(self):
-        self.set("integer", True)
-        self.set("precision", 0)
-        self.set("min", 0.0)
-        self.set("max", 99.0)
-        self.set("step", 1.0)
-
-    def setRange(self, lo, hi):  # noqa: N802
-        self.set("min", float(lo))
-        self.set("max", float(hi))
-        self.rangeChanged.emit(int(lo), int(hi))
-
-    def setMinimum(self, v):  # noqa: N802
-        self.set("min", float(v))
-
-    def setMaximum(self, v):  # noqa: N802
-        self.set("max", float(v))
-
-    def minimum(self):
-        return int(self.get("min"))
-
-    def maximum(self):
-        return int(self.get("max"))
-
-    def value(self):
-        return int(round(self.get("value")))
-
-    def setValue(self, v):  # noqa: N802
-        self.set("set_value", float(v))
-
-    def setSingleStep(self, s):  # noqa: N802
-        self.set("step", float(s))
 
     def setTickPosition(self, *a):  # noqa: N802 - accepted; Blender's sliders draw no ticks
         pass
 
-    setTickInterval = setTracking = setTickPosition
+    setTickInterval = setTickPosition
+
+    def _on_event(self, kind, ref, a, b):
+        if kind in (EV_PRESS, EV_RELEASE):
+            self.setSliderDown(kind == EV_PRESS)
+        QWidget._on_event(self, kind, ref, a, b)
 
     def _event(self, kind, ref, a, b):
         if kind == EV_CHANGE:
-            self.valueChanged.emit(self.value())
-            self.sliderMoved.emit(self.value())
+            self._moved()
 
 
 class QSlider(QAbstractSlider):
@@ -1643,27 +1676,35 @@ class QSlider(QAbstractSlider):
         if isinstance(orientation, QWidget):
             orientation, parent = Qt.Horizontal, orientation
         super().__init__(parent)
-
-    def setOrientation(self, o):  # noqa: N802
-        pass
+        self.setOrientation(orientation)
 
 
 class QDial(QSlider):
     pass
 
 
-class QSpinBox(SpinBoxMore, QAbstractSlider):
+class QAbstractSpinBox(AbstractSpinBoxMore, QWidget):
+    """A Blender number field: drag it, click its arrows or type into it."""
     KIND = "number"
+    editingFinished = Signal()
 
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self._prefix = ""
+    def prefix(self):
+        return ""
 
+    def suffix(self):
+        return ""
+
+    def cleanText(self):  # noqa: N802
+        return ""
+
+
+class QSpinBox(SpinBoxMore, RangeMore, QAbstractSpinBox):
+    valueChanged = Signal(int)
     textChanged = Signal(str)
 
     def _event(self, kind, ref, a, b):
-        super()._event(kind, ref, a, b)
         if kind == EV_CHANGE:
+            self.valueChanged.emit(self.value())
             self.textChanged.emit(self.text())
 
 
@@ -1676,13 +1717,6 @@ class QDoubleSpinBox(DoubleSpinBoxMore, QSpinBox):
         self.set("precision", 2)
         self.set("step", 0.1)
 
-    def value(self):
-        return self.get("value")
-
-    def _event(self, kind, ref, a, b):
-        if kind == EV_CHANGE:
-            self.valueChanged.emit(self.value())
-            self.textChanged.emit(self.text())
 
 
 class QProgressBar(ProgressBarMore, QWidget):
@@ -1752,35 +1786,34 @@ class QComboBox(ComboBoxMore, QWidget):
     def _setup(self):
         self._items = []
         self._data = []
+        self._icons = []
 
-    def addItem(self, text, data=None):  # noqa: N802
-        if isinstance(text, QIcon):
-            text, data = data, None
-        if self.count() >= self.maxCount():
-            return
-        self._items.append(str(text))
-        self._data.append(data)
-        self.set("items", self._items)
+    def addItem(self, *args):  # noqa: N802 - (text[, data]) or (icon, text[, data])
+        self.insertItem(self.count(), *args)
 
     def addItems(self, texts):  # noqa: N802
         for t in texts:
             self.addItem(t)
 
-    def insertItem(self, index, text, data=None):  # noqa: N802
+    def insertItem(self, index, *args):  # noqa: N802 - (index, text[, data]) or (index, icon, text[, data])
+        icon = args[0] if isinstance(args[0], QIcon) else None
+        text, *rest = args[1:] if icon is not None else args
         if self.count() >= self.maxCount():
             return
         self._items.insert(index, str(text))
-        self._data.insert(index, data)
-        self.set("items", self._items)
+        self._data.insert(index, rest[0] if rest else None)
+        self._icons.insert(index, icon)
+        self._sync()
 
     def removeItem(self, index):  # noqa: N802
         del self._items[index]
         del self._data[index]
-        self.set("items", self._items)
+        del self._icons[index]
+        self._sync()
 
     def clear(self):
-        self._items, self._data = [], []
-        self.set("items", [])
+        self._items, self._data, self._icons = [], [], []
+        self._sync()
 
     def count(self):
         return len(self._items)
@@ -2490,7 +2523,7 @@ from bui.qtcontainers import (QDockWidget, QFrame, QGroupBox, QScrollArea, QSpli
 from bui.qtviews import (QAbstractItemModel, QAbstractListModel, QAbstractTableModel,  # noqa: E402,F401
                          QItemSelectionModel, QListView, QModelIndex, QPersistentModelIndex,
                          QStandardItem, QStandardItemModel, QStringListModel, QTableView, QTreeView)
-from bui.qtdialogs import QInputDialog, QMessageBox  # noqa: E402,F401
+from bui.qtdialogs import QDialogButtonBox, QInputDialog, QMessageBox  # noqa: E402,F401
 from bui.qtcore import QClipboard, QKeySequence, QSettings, QShortcut  # noqa: E402,F401
 from bui.qtgui import (QContextMenuEvent, QCursor, QDoubleValidator, QFontMetrics,  # noqa: E402,F401
                        QFontMetricsF, QIntValidator, QPalette, QRegularExpression,
