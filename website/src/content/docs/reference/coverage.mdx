@@ -15,7 +15,7 @@ sources: ["SYNTAX_COVERAGE.md", "docs/rust.md", "docs/qt.md", "docs/qt-coverage.
 | API | Coverage | Status |
 | --- | --- | --- |
 | tkinter and ttk | **7,846 of 7,846** public names | Complete |
-| Qt syntax | **482 of 1,555** public methods, signals and slots (31%) on 36 core widget classes | Partial |
+| Qt syntax | **802 of 1,555** public methods, signals and slots (52%) on 36 core widget classes | Partial |
 | Blender components (Python) | **45** components | Complete |
 | HTML elements (Rust, JavaScript) | **113 of 113** | Complete |
 | CSS properties (Rust, JavaScript) | **261 of 745** W3C properties render, **129** more parse | Partial |
@@ -38,7 +38,7 @@ The modules covered: the `tkinter` package itself, `ttk`, `messagebox`, `filedia
 
 ## Qt syntax
 
-**482 of 1,555 public methods, signals, slots and event handlers on 36 core widget classes (31%), and 573 of 3,205 across all 142 exported widget and GUI classes (18%).** There's no Qt in the test environment, so `tools/qt_coverage.py` counts from Qt's own headers (`reference/qtbase`): public methods, slots, signals and overridable `*Event` handlers, per class.
+**802 of 1,555 public methods, signals, slots and event handlers on 36 core widget classes (52%), and 1,092 of 3,205 across all 142 exported widget and GUI classes (34%).** There's no Qt in the test environment, so `tools/qt_coverage.py` counts from Qt's own headers (`reference/qtbase`): public methods, slots, signals and overridable `*Event` handlers, per class.
 
 What's there: widgets and layouts (box, grid, form, stacked), signals, `QPainter`, menus and actions, timers and property animations, and the common value types. `setStyleSheet` understands `color`, `background` on containers and `font-weight: bold`.
 
@@ -46,9 +46,9 @@ What's there: widgets and layouts (box, grid, form, stacked), signals, `QPainter
 
 - `QDateEdit` and friends, `QCalendarWidget`, `QThread`, `QGraphicsScene`, OpenGL widgets.
 - Delegates, editing inside views, multi-selection; floating docks.
-- Stylesheet selectors and pseudo-states, `QPalette`; drag and drop; rich text.
+- Stylesheet selectors and pseudo-states; drag and drop; rich text; tristate check boxes and editable combo boxes.
 
-Anything not implemented raises `AttributeError`. A few setters are accepted and ignored: window flags and icons, frame shapes, word wrap, echo mode, validators, scroll-bar policies, maximum sizes and the like (`docs/qt.md` lists them).
+Anything not implemented raises `AttributeError`. A few setters are accepted and ignored: window icons, cursors, word wrap, echo mode and the like (`docs/qt.md` lists them).
 
 <ComingSoon feature="Qt parity">
 The plan is to measure against PySide6 itself, run the same programs on real Qt and on BUI (as the tkinter suite does), fill in the classes above, and then add an `install()` so `import PySide6` programs run unchanged.
