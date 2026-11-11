@@ -520,6 +520,231 @@ def test_context_menu_resize_keyrelease():
     assert len(asked) == 1 and asked[0][0].x() == 1
 
 
+def test_actions_and_groups():
+    a = q.QAction("&Save As...")
+    assert a.iconText() == "Save As" and a.toolTip() == "Save As", "Qt's defaults drop & and ..."
+    changed = spy(a.changed)
+    a.setStatusTip("Save under a new name")
+    a.setData({"id": 7})
+    assert a.statusTip() == "Save under a new name" and a.data() == {"id": 7} and changed
+    a.setShortcuts(["Ctrl+Shift+S", "F12"])
+    assert a.shortcut() == "Ctrl+Shift+S" and len(a.shortcuts()) == 2
+
+    group = q.QActionGroup(None)
+    x, y = group.addAction("X"), group.addAction("Y")
+    for act in (x, y):
+        act.setCheckable(True)
+    fired = spy(group.triggered)
+    x.trigger()
+    y.trigger()
+    assert y.isChecked() and not x.isChecked() and group.checkedAction() is y
+    y.trigger()
+    assert y.isChecked(), "an exclusive group keeps its checked action checked"
+    assert fired == [(x,), (y,), (y,)]
+    group.setExclusionPolicy(q.QActionGroup.ExclusionPolicy.ExclusiveOptional)
+    y.trigger()
+    assert not y.isChecked(), "exclusive-optional lets it go"
+    group.setEnabled(False)
+    assert not x.isEnabled()
+    x.trigger()
+    assert not x.isChecked(), "a disabled action does nothing"
+
+
+def test_menus_and_menubar():
+    win = q.QMainWindow()
+    win._ctx = buipy.KitContext(win)
+    bar = win.menuBar()
+    file_menu = bar.addMenu("&File")
+    opened = file_menu.addAction("Open")
+    file_menu.addSeparator()
+    file_menu.addSeparator()
+    recent = q.QMenu("Recent")
+    action = file_menu.addMenu(recent)
+    assert action is recent.menuAction() and action.menu() is recent
+    doc = recent.addAction("doc.txt")
+    hidden = file_menu.addAction("Hidden")
+    hidden.setVisible(False)
+    items = file_menu._items()
+    assert [getattr(i, "text", i) for i in items] == ["Open", "-", "Recent"], "doubled separators collapse"
+    assert items[2].submenu[0].text == "doc.txt"
+    got = spy(file_menu.triggered), spy(bar.triggered)
+    doc.trigger()
+    assert got[0] == [(doc,)] and got[1] == [(doc,)], "triggered goes up to the menu and the bar"
+    file_menu.insertSection(opened, "Files")
+    assert [getattr(i, "text", i) for i in file_menu._items()][:2] == ["Files", "Open"]
+    assert not file_menu.isEmpty() and q.QMenu().isEmpty()
+    help_action = bar.addAction("Help")
+    assert isinstance(bar._buttons[help_action], q.QToolButton), "a plain action is a flat button"
+    saved = []
+    save = q.QAction("Save", win)
+    save.triggered.connect(lambda *_: saved.append(1))
+    file_menu.addAction(save)
+    save.setShortcut("Ctrl+S")
+    from bui.qtcore import bind_shortcuts
+    bind_shortcuts(win)
+    win._ctx.key("", "s", 0x2)
+    assert saved == [1], "the action's shortcut is bound on its window"
+    corner = q.QLabel("v1")
+    bar.setCornerWidget(corner)
+    assert bar.cornerWidget() is corner
+    bar.clear()
+    assert bar.actions() == []
+    render(win)
+
+
+def test_tool_buttons_and_button_groups():
+    act = q.QAction("Bold")
+    act.setCheckable(True)
+    tb = q.QToolButton()
+    tb.setDefaultAction(act)
+    tb.setAutoRaise(True)
+    triggered = spy(tb.triggered)
+    tb.click()
+    assert act.isChecked() and tb.isChecked() and triggered == [(act,)]
+    act.setText("Strong")
+    assert tb.text() == "Strong", "the button follows its action"
+    act.setEnabled(False)
+    assert not tb.isEnabled()
+    tb.setArrowType(q.Qt.DownArrow)
+    assert tb.arrowType() == q.Qt.DownArrow and tb.autoRaise()
+    render(tb)
+
+    parent = q.QWidget()
+    group = q.QButtonGroup()
+    buttons = [q.QPushButton(t, parent) for t in "abc"]
+    for i, b in enumerate(buttons):
+        b.setCheckable(True)
+        group.addButton(b, i + 10)
+    clicked = spy(group.idClicked)
+    buttons[0].click()
+    buttons[2].click()
+    assert group.checkedId() == 12 and not buttons[0].isChecked() and clicked == [(10,), (12,)]
+    assert group.button(11) is buttons[1] and group.id(buttons[2]) == 12
+    auto = q.QButtonGroup()
+    b1, b2 = q.QRadioButton("1"), q.QRadioButton("2")
+    auto.addButton(b1)
+    auto.addButton(b2)
+    assert (auto.id(b1), auto.id(b2)) == (-2, -3), "ids count down from -2"
+
+    row = q.QWidget()
+    p, r = q.QPushButton("p", row), q.QPushButton("r", row)
+    for b in (p, r):
+        b.setCheckable(True)
+        b.setAutoExclusive(True)
+    p.setChecked(True)
+    r.setChecked(True)
+    assert not p.isChecked(), "auto-exclusive siblings"
+    p.setDown(True)
+    assert p.isDown()
+
+
+def test_layout_api():
+    w = q.QWidget()
+    box = q.QVBoxLayout(w)
+    a, b, c = q.QLabel("a"), q.QLabel("b"), q.QLabel("c")
+    box.addWidget(a)
+    box.addWidget(c, 2)
+    box.insertWidget(1, b)
+    box.insertSpacing(0, 10)
+    box.addSpacerItem(q.QSpacerItem(0, 0, q.QSizePolicy.Minimum, q.QSizePolicy.Expanding))
+    assert [box.indexOf(x) for x in (a, b, c)] == [1, 2, 3] and box.stretch(3) == 2
+    assert box.setStretchFactor(b, 4) and box.stretch(2) == 4
+    item = box.takeAt(2)
+    assert item.widget() is b and box.indexOf(b) == -1 and not box.isEmpty()
+    box.replaceWidget(a, b)
+    assert box.indexOf(b) == 1 and box.indexOf(a) == -1
+    box.setDirection(q.QBoxLayout.BottomToTop)
+    assert box.direction() == q.QBoxLayout.BottomToTop
+    box.setContentsMargins(4, 5, 6, 7)
+    assert box.getContentsMargins() == (4, 5, 6, 7)
+    render(w)
+
+    g = q.QWidget()
+    grid = q.QGridLayout(g)
+    cells = {(r, col): q.QLabel("%d%d" % (r, col)) for r in range(2) for col in range(2)}
+    for (r, col), lab in cells.items():
+        grid.addWidget(lab, r, col)
+    wide = q.QLabel("wide")
+    grid.addWidget(wide, 2, 0, 1, 2)
+    assert grid.itemAtPosition(2, 1).widget() is wide and grid.getItemPosition(grid.indexOf(wide)) == (2, 0, 1, 2)
+    grid.setColumnStretch(1, 3)
+    grid.setRowMinimumHeight(0, 40)
+    assert grid.columnStretch(1) == 3 and grid.rowMinimumHeight(0) == 40 and grid.rowCount() == 3
+    render(g)
+
+    f = q.QWidget()
+    form = q.QFormLayout(f)
+    name, age = q.QLineEdit(), q.QSpinBox()
+    form.addRow("Name", name)
+    form.addRow("Age", age)
+    note = q.QLabel("note")
+    form.insertRow(1, note)
+    assert form.rowCount() == 3 and form.getWidgetPosition(age) == (2, q.QFormLayout.FieldRole)
+    assert form.labelForField(name).text() == "Name"
+    form.setRowVisible(2, False)
+    assert not form.isRowVisible(2)
+    form.removeRow(1)
+    assert form.rowCount() == 2 and form.getWidgetPosition(age)[0] == 1
+    render(f)
+
+    s = q.QWidget()
+    stack = q.QStackedLayout(s)
+    changed = spy(stack.currentChanged)
+    p0, p1 = q.QLabel("0"), q.QLabel("1")
+    stack.addWidget(p0)
+    stack.addWidget(p1)
+    stack.setCurrentWidget(p1)
+    assert stack.currentWidget() is p1 and changed == [(0,), (1,)]
+    stack.setStackingMode(q.QStackedLayout.StackAll)
+    assert p0.isVisible()
+
+
+def test_frames_groups_scroll_status():
+    frame = q.QFrame()
+    frame.setFrameStyle(q.QFrame.StyledPanel | q.QFrame.Sunken)
+    lay = q.QVBoxLayout(frame)
+    lay.addWidget(q.QLabel("inside"))
+    assert frame.frameShape() == q.QFrame.StyledPanel and frame.frameShadow() == q.QFrame.Sunken
+    assert lay.parent.type == "box", "a styled panel is a Blender box around the contents"
+    line = q.QFrame()
+    line.setFrameShape(q.QFrame.VLine)
+    assert line._inner.type == "separator" and line._inner.get("vertical")
+    render(frame)
+
+    gb = q.QGroupBox("Options")
+    inner = q.QVBoxLayout(gb)
+    opt = q.QCheckBox("x")
+    off = q.QPushButton("off")
+    off.setEnabled(False)
+    inner.addWidget(opt)
+    inner.addWidget(off)
+    toggled = spy(gb.toggled)
+    gb.setCheckable(True)
+    assert gb.isChecked() and gb.title() == "Options"
+    gb.setChecked(False)
+    assert not opt.isEnabled() and toggled == [(False,)]
+    gb.setChecked(True)
+    assert opt.isEnabled() and not off.isEnabled(), "each widget gets its own state back"
+    render(gb)
+
+    area = q.QScrollArea()
+    content = q.QLabel("long")
+    area.setWidget(content)
+    assert area.widget() is content and area.takeWidget() is content and area.widget() is None
+    area.setVerticalScrollBarPolicy(q.Qt.ScrollBarAlwaysOff)
+    assert area.verticalScrollBarPolicy() == q.Qt.ScrollBarAlwaysOff
+
+    bar = q.QStatusBar()
+    normal, perm = q.QLabel("n"), q.QLabel("p")
+    bar.addWidget(normal)
+    bar.addPermanentWidget(perm)
+    msgs = spy(bar.messageChanged)
+    bar.showMessage("Saved")
+    assert bar.currentMessage() == "Saved" and not normal.isVisible() and perm.isVisible()
+    bar.clearMessage()
+    assert normal.isVisible() and msgs == [("Saved",), ("",)]
+    render(bar)
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

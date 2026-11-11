@@ -1,7 +1,7 @@
 """The Qt API of the input widgets beyond their basics, for `bui.qtsyntax`'s classes: line edits
 (length limits, validators, modified state), spin boxes (prefix, suffix, wrapping, special value),
 sliders (page steps and slider actions), progress bars (format and text), combo boxes (item data,
-limits, a model), tab widgets, labels, and push buttons (checkable, flat, default, with a menu).
+limits, a model), tab widgets, labels, and buttons (checkable, down, auto-exclusive, flat, default, with a menu).
 
 SPDX-License-Identifier: GPL-2.0-or-later
 """
@@ -338,27 +338,87 @@ class LabelMore:
         return self.__dict__.get("_pixmap")
 
 
-class PushButtonMore:
-    """QPushButton: checkable (a toggle), flat (Blender's emboss off), default, and a menu."""
+class AbstractButtonMore:
+    """QAbstractButton: checkable (a checked button is drawn pressed in, Blender's UI_SELECT), down,
+    auto-exclusive siblings and its group. QCheckBox and QRadioButton keep their check in the kit."""
+    _AUTO_EXCLUSIVE = False
 
     def isCheckable(self):  # noqa: N802
         return self.__dict__.get("_checkable", False)
 
     def setCheckable(self, b):  # noqa: N802
         self.__dict__["_checkable"] = bool(b)
+        if not b:
+            self.setChecked(False)
 
     def isChecked(self):  # noqa: N802
         return self.__dict__.get("_checked", False)
 
     def setChecked(self, b):  # noqa: N802
-        if not self.isCheckable() or bool(b) == self.isChecked():
+        if (b and not self.isCheckable()) or bool(b) == self.isChecked():
             return
         self.__dict__["_checked"] = bool(b)
-        self.set("select", bool(b))  # Blender UI_SELECT: drawn pressed in
+        self.set("select", bool(b) or self.isDown())
+        if b:
+            for other in self._exclusive_siblings():
+                other.setChecked(False)
         self.toggled.emit(bool(b))
 
     def toggle(self):
         self.setChecked(not self.isChecked())
+
+    def isDown(self):  # noqa: N802
+        return self.__dict__.get("_down", False)
+
+    def setDown(self, b):  # noqa: N802
+        self.__dict__["_down"] = bool(b)
+        self.set("select", bool(b) or self.isChecked())
+
+    def autoExclusive(self):  # noqa: N802
+        return self.__dict__.get("_auto_exclusive", self._AUTO_EXCLUSIVE)
+
+    def setAutoExclusive(self, b):  # noqa: N802
+        self.__dict__["_auto_exclusive"] = bool(b)
+
+    def group(self):
+        return self.__dict__.get("_group")
+
+    def _exclusive_siblings(self):
+        """Checked buttons that turn off when this one turns on: in its group (QButtonGroup does it),
+        else auto-exclusive siblings in the same parent."""
+        parent = self.parent
+        if self.group() is not None or not self.autoExclusive() or parent is None:
+            return []
+        from bui.qtsyntax import _kids
+        return [c for c in _kids(parent) if c is not self and isinstance(c, AbstractButtonMore)
+                and c.group() is None and c.autoExclusive() and c.isChecked()]
+
+    def icon(self):
+        from bui.qtsyntax import QIcon
+        return self.__dict__.get("_icon") or QIcon()
+
+
+class ButtonMenuMore:
+    """A button's menu (QPushButton and QToolButton): opened below the button."""
+
+    def menu(self):
+        return self.__dict__.get("_menu")
+
+    def setMenu(self, menu):  # noqa: N802
+        self.__dict__["_menu"] = menu
+        if menu is not None and menu._parent is None:
+            menu._parent = self
+
+    def showMenu(self):  # noqa: N802
+        menu = self.menu()
+        if menu is not None:
+            from bui.qtsyntax import QPoint
+            x, y = self.absolutePos()
+            menu.popup(QPoint(x, y + self.height()))
+
+
+class PushButtonMore(ButtonMenuMore):
+    """QPushButton: flat (Blender's emboss off), default, and a menu."""
 
     def isFlat(self):  # noqa: N802
         return self.__dict__.get("_flat", False)
@@ -379,19 +439,3 @@ class PushButtonMore:
 
     def setAutoDefault(self, b):  # noqa: N802
         self.__dict__["_auto_default"] = bool(b)
-
-    def menu(self):
-        return self.__dict__.get("_menu")
-
-    def setMenu(self, menu):  # noqa: N802
-        self.__dict__["_menu"] = menu
-        if menu is not None:
-            menu._parent = self
-
-    def showMenu(self):  # noqa: N802
-        """The button's menu, just below it."""
-        menu = self.menu()
-        if menu is not None:
-            from bui.qtsyntax import QPoint
-            x, y = self.absolutePos()
-            menu.popup(QPoint(x, y + self.height()))

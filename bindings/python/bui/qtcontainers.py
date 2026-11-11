@@ -1,13 +1,15 @@
 """Qt's container widgets on the kit, drawn the Blender way: QStackedWidget, QToolBox (Blender
 panels), QSplitter (region edges you drag), QToolBar (a row of tool buttons), QDockWidget (a
-panel beside the central widget of a QMainWindow) and QTabBar.
+panel beside the central widget of a QMainWindow), QTabBar, QFrame (a box or a separator line),
+QGroupBox (checkable), QScrollArea and QStatusBar.
 
 SPDX-License-Identifier: GPL-2.0-or-later
 """
 
 import buipy
 
-from bui.qtsyntax import (EV_CHANGE, EV_CLICK, PACK, QAction, QPushButton, QWidget, Qt, Signal)
+from bui.qtactions import QAction, QToolButton
+from bui.qtsyntax import EV_CHANGE, PACK, QWidget, Qt, Signal, _kids, _timers
 from bui.tksyntax._widgets import _Sash
 
 
@@ -301,26 +303,6 @@ class QSplitter(QWidget):
             self.splitterMoved.emit(size, index + 1)
 
 
-class _ToolButton(QPushButton):
-    """A toolbar's button for one action."""
-
-    def __init__(self, bar, action):
-        super().__init__(action.text())
-        self._bar, self._action = bar, action
-        icon = getattr(action, "_icon", None)
-        if getattr(icon, "name", ""):
-            self.set("icon", icon.name)
-        self.set("enabled", action.isEnabled())
-
-    def _event(self, kind, ref, a, b):
-        if kind == EV_CLICK:
-            a = self._action
-            if a.isCheckable():
-                a.setChecked(not a.isChecked())
-            a.triggered.emit(a.isChecked())
-            self._bar.actionTriggered.emit(a)
-
-
 class QToolBar(QWidget):
     """A row of tool buttons, one per action (Blender's header row)."""
     KIND = "row"
@@ -343,11 +325,14 @@ class QToolBar(QWidget):
             icon = args[0] if not isinstance(args[0], str) else None
             rest = args[1:] if icon is not None else args
             action = QAction(str(rest[0]) if rest else "", self)
-            action._icon = icon
+            action.setIcon(icon)
             if len(rest) > 1 and callable(rest[1]):
                 action.triggered.connect(rest[1])
-        self._insert(None, action, _ToolButton(self, action))
-        self._apply_style(self._items[action])
+        button = QToolButton()
+        button.setDefaultAction(action)
+        button.setToolButtonStyle(self._style)
+        button.triggered.connect(self.actionTriggered.emit)
+        self._insert(None, action, button)
         return action
 
     def addWidget(self, w):  # noqa: N802
@@ -358,7 +343,7 @@ class QToolBar(QWidget):
 
     def addSeparator(self):  # noqa: N802
         action = QAction("", self)
-        action._separator = True
+        action.setSeparator(True)
         self._insert(None, action, buipy.KitNode("separator"))
         return action
 
@@ -399,14 +384,9 @@ class QToolBar(QWidget):
         if style != self._style:
             self._style = style
             for node in self._items.values():
-                self._apply_style(node)
+                if isinstance(node, QToolButton):
+                    node.setToolButtonStyle(style)
             self.toolButtonStyleChanged.emit(style)
-
-    def _apply_style(self, node):
-        if isinstance(node, _ToolButton):
-            # icon-only shows just the icon when the action has one (Qt's default for toolbars)
-            has_icon = bool(node.get_str("icon"))
-            node.set("icon_only", self._style == Qt.ToolButtonIconOnly and has_icon)
 
     def orientation(self):
         return Qt.Horizontal
@@ -525,3 +505,323 @@ class QTabBar(QWidget):
         if kind == EV_CHANGE:
             self.tabBarClicked.emit(int(a))
             self.currentChanged.emit(int(a))
+
+
+def _descendants(node):
+    for c in _kids(node):
+        yield c
+        yield from _descendants(c)
+
+
+class QFrame(QWidget):
+    """A frame's shape is Blender's: a box (uiLayoutBox) for Box / Panel / StyledPanel, a separator
+    line for HLine / VLine; its contents (a layout) go inside the box."""
+    NoFrame, Box, Panel, WinPanel, HLine, VLine, StyledPanel = 0, 1, 2, 3, 4, 5, 6
+    Plain, Raised, Sunken = 0x10, 0x20, 0x30
+    Shape_Mask, Shadow_Mask = 0x0F, 0xF0
+    _BOXES = (Box, Panel, WinPanel, StyledPanel)
+
+    def _setup(self):
+        self._shape, self._shadow = self.NoFrame, self.Plain
+        self._line_width, self._mid_width = 1, 0
+        self._inner = None  # the box or the line
+
+    def frameShape(self):  # noqa: N802
+        return self._shape
+
+    def setFrameShape(self, shape):  # noqa: N802
+        self._shape = int(shape)
+        self._restyle()
+
+    def frameShadow(self):  # noqa: N802
+        return self._shadow
+
+    def setFrameShadow(self, shadow):  # noqa: N802
+        self._shadow = int(shadow)
+
+    def frameStyle(self):  # noqa: N802
+        return self._shape | self._shadow
+
+    def setFrameStyle(self, style):  # noqa: N802
+        self._shadow = int(style) & self.Shadow_Mask
+        self.setFrameShape(int(style) & self.Shape_Mask)
+
+    def lineWidth(self):  # noqa: N802
+        return self._line_width
+
+    def setLineWidth(self, w):  # noqa: N802
+        self._line_width = int(w)
+
+    def midLineWidth(self):  # noqa: N802
+        return self._mid_width
+
+    def setMidLineWidth(self, w):  # noqa: N802
+        self._mid_width = int(w)
+
+    def frameWidth(self):  # noqa: N802
+        return 0 if self._shape == self.NoFrame else self._line_width
+
+    def frameRect(self):  # noqa: N802
+        return self.rect()
+
+    def _content_node(self):
+        inner = self._inner
+        return inner if inner is not None and inner.type == "box" else self
+
+    def _restyle(self):
+        kind = "box" if self._shape in self._BOXES else "separator" if self._shape in (self.HLine, self.VLine) \
+            else None
+        old = self._inner
+        if old is not None and old.type == kind:
+            old.set("vertical", self._shape == self.VLine) if kind == "separator" else None
+            return
+        moved = [c for c in _kids(old)] if old is not None and old.type == "box" else []
+        if old is not None:
+            self.remove(old)
+        if kind is None:
+            self._inner = None
+            target = self
+        else:
+            self._inner = inner = buipy.KitNode(kind)
+            if kind == "separator":
+                inner.set("line", True)
+                inner.set("vertical", self._shape == self.VLine)
+            moved += [c for c in _kids(self)]
+            self.add(inner)
+            inner.geom(PACK, fill=3, expand=1)
+            target = inner if kind == "box" else self
+        for c in moved:
+            c.parent.remove(c)
+            target.add(c)
+            c.geom(PACK, fill=3, expand=1)
+
+
+class QGroupBox(QWidget):
+    """A titled group (Blender's sub-panel look); checkable puts a checkbox in the title that enables
+    and disables the contents (a panel header with a toggle)."""
+    clicked = Signal(bool)
+    toggled = Signal(bool)
+
+    def __init__(self, title="", parent=None):
+        if isinstance(title, QWidget):
+            title, parent = "", title
+        super().__init__(parent)
+        self._title = str(title)
+        self._check = None
+        self._disabled = {}  # descendant -> its own enabled state, while unchecked
+        self._flat = False
+        self.set("text", self._title)
+        self.set("padding", round(0.3 * buipy.kit_unit()))
+
+    def setTitle(self, t):  # noqa: N802
+        self._title = str(t)
+        if self._check is not None:
+            self._check.setText(self._title)
+        else:
+            self.set("text", self._title)
+
+    def title(self):
+        return self._title
+
+    def isFlat(self):  # noqa: N802
+        return self._flat
+
+    def setFlat(self, b):  # noqa: N802
+        """Flat: the title only, no padding around the contents."""
+        self._flat = bool(b)
+        self.set("padding", 0 if b else round(0.3 * buipy.kit_unit()))
+
+    def isCheckable(self):  # noqa: N802
+        return self._check is not None
+
+    def setCheckable(self, b):  # noqa: N802
+        if bool(b) == self.isCheckable():
+            return
+        if b:
+            from bui.qtsyntax import QCheckBox
+            self._check = QCheckBox(self._title)
+            self._check.setChecked(True)
+            self._check.toggled.connect(self._user_toggled)
+            self.set("text", "")
+            buipy.KitNode.add(self, self._check, 0)
+            self._check.geom(PACK, side=0, fill=1)
+        else:
+            self.setChecked(True)
+            self.remove(self._check)
+            self._check = None
+            self.set("text", self._title)
+
+    def isChecked(self):  # noqa: N802
+        return self._check is not None and self._check.isChecked()
+
+    def setChecked(self, b):  # noqa: N802
+        if self._check is None or bool(b) == self._check.isChecked():
+            return
+        self._check.setChecked(b)
+        self._apply_check(bool(b))
+        self.toggled.emit(bool(b))
+
+    def _user_toggled(self, on):
+        self._apply_check(on)
+        self.toggled.emit(on)
+        self.clicked.emit(on)
+
+    def _apply_check(self, on):
+        """Unchecked disables everything inside (Qt); checking gives each its own state back."""
+        if on:
+            for node, was in self._disabled.items():
+                node.set("enabled", was)
+            self._disabled = {}
+            return
+        for node in _descendants(self):
+            if node is not self._check and node not in self._disabled:
+                self._disabled[node] = bool(node.get("enabled"))
+                node.set("enabled", False)
+
+
+class QScrollArea(QWidget):
+    KIND = "scroll"
+
+    def _setup(self):
+        self.set("rows", 10)
+        self._widget = None
+        self._resizable = False
+        self._policies = [Qt.ScrollBarAsNeeded, Qt.ScrollBarAsNeeded]
+
+    def setWidget(self, w):  # noqa: N802
+        for c in _kids(self):
+            self.remove(c)
+        self._widget = w
+        if w is not None:
+            _detach(w)
+            self.add(w)
+
+    def widget(self):
+        return self._widget
+
+    def takeWidget(self):  # noqa: N802
+        w, self._widget = self._widget, None
+        if w is not None and w.parent is self:
+            self.remove(w)
+        return w
+
+    def widgetResizable(self):  # noqa: N802
+        return self._resizable
+
+    def setWidgetResizable(self, b):  # noqa: N802
+        """The kit's scroll view always fits its contents' width (Qt's resizable widget)."""
+        self._resizable = bool(b)
+
+    def horizontalScrollBarPolicy(self):  # noqa: N802
+        return self._policies[0]
+
+    def setHorizontalScrollBarPolicy(self, p):  # noqa: N802
+        self._policies[0] = int(p)
+
+    def verticalScrollBarPolicy(self):  # noqa: N802
+        return self._policies[1]
+
+    def setVerticalScrollBarPolicy(self, p):  # noqa: N802
+        """AlwaysOff hides the scroll bar (the view still scrolls with the wheel)."""
+        self._policies[1] = int(p)
+        self.set("noscrollbar", int(p) == Qt.ScrollBarAlwaysOff)
+
+    def ensureVisible(self, x, y, xmargin=50, ymargin=50):  # noqa: N802
+        """Scroll so content point (x, y) shows, `ymargin` from the edge."""
+        off, h = self.get("scroll"), self.height()
+        if y - ymargin < off:
+            off = y - ymargin
+        elif y + ymargin > off + h:
+            off = y + ymargin - h
+        self.set("scroll", max(0.0, float(off)))
+
+    def ensureWidgetVisible(self, child, xmargin=50, ymargin=50):  # noqa: N802
+        top = child._r[1] - self._r[1] + self.get("scroll")  # in content coordinates
+        off, h = self.get("scroll"), self.height()
+        if top - ymargin < off:
+            off = top - ymargin
+        elif top + child.height() + ymargin > off + h:
+            off = top + child.height() + ymargin - h
+        self.set("scroll", max(0.0, float(off)))
+
+
+class QStatusBar(QWidget):
+    """Blender's status bar row: widgets on the left (hidden while a message shows), the message, and
+    permanent widgets on the right."""
+    KIND = "row"
+    messageChanged = Signal(str)
+
+    def _setup(self):
+        self._normal, self._permanent = [], []
+        self._msg = buipy.KitNode("label")
+        self._token = None
+        self._grip = True
+        self._order()
+
+    def _order(self):
+        for c in list(_kids(self)):
+            self.remove(c)
+        for w in self._normal:
+            self.add(w)
+        self.add(self._msg)
+        self._msg.geom(PACK, side=2, fill=3, expand=1)
+        for w in self._normal:
+            w.geom(PACK, side=2, fill=2)
+        for w in self._permanent:
+            self.add(w)
+            w.geom(PACK, side=2, fill=2)
+
+    def _insert(self, kind, index, w, stretch):
+        _detach(w)
+        lst = self._permanent if kind else self._normal
+        index = len(lst) if index < 0 else min(int(index), len(lst))
+        lst.insert(index, w)
+        self._order()
+        w.set("visible", kind or not self.currentMessage())
+        return index
+
+    def addWidget(self, w, stretch=0):  # noqa: N802
+        self._insert(False, -1, w, stretch)
+
+    def insertWidget(self, index, w, stretch=0):  # noqa: N802
+        return self._insert(False, index, w, stretch)
+
+    def addPermanentWidget(self, w, stretch=0):  # noqa: N802
+        self._insert(True, -1, w, stretch)
+
+    def insertPermanentWidget(self, index, w, stretch=0):  # noqa: N802
+        return self._insert(True, index, w, stretch)
+
+    def removeWidget(self, w):  # noqa: N802
+        for lst in (self._normal, self._permanent):
+            if w in lst:
+                lst.remove(w)
+                self.remove(w)
+
+    def showMessage(self, text, timeout=0):  # noqa: N802
+        _timers.cancel(self._token)
+        self._token = _timers.after(timeout, self.clearMessage) if timeout else None
+        self._set_message(str(text))
+
+    def clearMessage(self):  # noqa: N802
+        _timers.cancel(self._token)
+        self._token = None
+        self._set_message("")
+
+    def _set_message(self, text):
+        if text == self.currentMessage():
+            return
+        self._msg.set("text", text)
+        for w in self._normal:  # a temporary message covers the normal widgets (Qt)
+            w.set("visible", not text)
+        self.messageChanged.emit(text)
+
+    def currentMessage(self):  # noqa: N802
+        return self._msg.get_str("text")
+
+    def isSizeGripEnabled(self):  # noqa: N802
+        return self._grip
+
+    def setSizeGripEnabled(self, b):  # noqa: N802
+        """The window's own frame resizes it; there is no grip to draw."""
+        self._grip = bool(b)

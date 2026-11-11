@@ -226,6 +226,7 @@ class QWidgetMore:
         if action in acts:
             acts.remove(action)
         acts.insert(acts.index(before) if before in acts else len(acts), action)
+        action._attach(self)
 
     def insertActions(self, before, actions):  # noqa: N802
         for a in actions:
@@ -235,6 +236,7 @@ class QWidgetMore:
         acts = self.__dict__.get("_actions", [])
         if action in acts:
             acts.remove(action)
+            action._detach(self)
 
     # -- show / hide hooks (QWidget.show, hide and setVisible call them) ------------------------------------
     def showEvent(self, event):  # noqa: N802

@@ -300,8 +300,13 @@ class QShortcut:
         if self._enabled:
             self.activated.emit()
 
+    def _widget(self):
+        """The widget whose window the key is bound on."""
+        return self._parent
+
     def _bind(self):
-        win = self._parent.window() if self._parent is not None else None
+        widget = self._widget()
+        win = widget.window() if widget is not None else None
         ctx = getattr(win, "_ctx", None)
         combo = self._key._combo()
         if ctx is not None and combo and (id(ctx), combo) not in self._bound:
@@ -334,7 +339,8 @@ class QShortcut:
 def bind_shortcuts(window):
     """Bind the shortcuts of `window`'s widgets (QWidget calls it when the window opens)."""
     for s in _shortcuts:
-        if s._parent is not None and s._parent.window() is window:
+        widget = s._widget()
+        if widget is not None and widget.window() is window:
             s._bind()
 
 
