@@ -83,7 +83,6 @@ class Qt:
     ElideLeft, ElideRight, ElideMiddle, ElideNone = 0, 1, 2, 3
     NoArrow, UpArrow, DownArrow, LeftArrow, RightArrow = 0, 1, 2, 3, 4
     TopLeftCorner, TopRightCorner, BottomLeftCorner, BottomRightCorner = 0, 1, 2, 3
-    TopLeftCorner, TopRightCorner, BottomLeftCorner, BottomRightCorner = 0, 1, 2, 3
     white, black, red, green, blue, gray = "#ffffff", "#000000", "#ff0000", "#00ff00", \
         "#0000ff", "#808080"
 
@@ -846,8 +845,8 @@ class QWidget(QWidgetMore, buipy.KitNode):
         return [c for c in _kids(self) if isinstance(c, QWidget)]
 
     def setLayout(self, layout):  # noqa: N802
-        if self._layout is not None:
-            self.remove(self._layout)
+        if self._layout is not None and self._layout.parent is not None:
+            self._layout.parent.remove(self._layout)
         self._layout = layout
         layout._owner = self
         if layout._margins is None:  # top-level layouts get Qt's default margin
@@ -1425,7 +1424,9 @@ class QAbstractButton(AbstractButtonMore, QWidget):
             if getattr(self, "menu", lambda: None)() is not None:
                 self.showMenu()
                 return
-            if self.isCheckable():
+            group = self.group()
+            exclusive = group.exclusive() if group is not None else self.autoExclusive()
+            if self.isCheckable() and not (self.isChecked() and exclusive):
                 self.toggle()
             self.clicked.emit(self.isChecked())
 
@@ -1477,7 +1478,15 @@ class QCheckBox(QAbstractButton):
         return self.get("value") != 0
 
     def setChecked(self, b):  # noqa: N802
-        self.set("set_value", 1.0 if b else 0.0)
+        if bool(b) != self.isChecked():
+            self.set("set_value", 1.0 if b else 0.0)
+            self._state_changed()
+
+    def _state_changed(self):
+        on = self.isChecked()
+        self.toggled.emit(on)
+        self.stateChanged.emit(Qt.Checked if on else Qt.Unchecked)
+        self.checkStateChanged.emit(Qt.Checked if on else Qt.Unchecked)
 
     def checkState(self):  # noqa: N802
         return Qt.Checked if self.isChecked() else Qt.Unchecked
@@ -1490,14 +1499,12 @@ class QCheckBox(QAbstractButton):
 
     def click(self):
         self.toggle()
+        self.clicked.emit(self.isChecked())
 
     def _event(self, kind, ref, a, b):
         if kind == EV_CHANGE:
-            on = self.isChecked()
-            self.toggled.emit(on)
-            self.stateChanged.emit(Qt.Checked if on else Qt.Unchecked)
-            self.checkStateChanged.emit(Qt.Checked if on else Qt.Unchecked)
-            self.clicked.emit(on)
+            self._state_changed()
+            self.clicked.emit(self.isChecked())
 
 
 class QRadioButton(QAbstractButton):
@@ -1524,9 +1531,18 @@ class QRadioButton(QAbstractButton):
     def setChecked(self, b):  # noqa: N802
         if bool(b) != self.isChecked():
             self.set("set_value", 1.0 if b else 0.0)
+            self._state_changed()
+
+    def _state_changed(self):
+        on = self.isChecked()
+        if on:  # Qt auto-exclusive: siblings turn off
+            for r in self._siblings():
+                r.setChecked(False)
+        self.toggled.emit(on)
 
     def click(self):
         self.setChecked(True)
+        self.clicked.emit(True)
 
     def _siblings(self):
         if self._group is not None:
@@ -1538,13 +1554,8 @@ class QRadioButton(QAbstractButton):
 
     def _event(self, kind, ref, a, b):
         if kind == EV_CHANGE:
-            on = self.isChecked()
-            if on:  # Qt auto-exclusive: siblings turn off
-                for r in self._siblings():
-                    if r.isChecked():
-                        r.set("set_value", 0.0)
-            self.toggled.emit(on)
-            if on:
+            self._state_changed()
+            if self.isChecked():
                 self.clicked.emit(True)
 
 
@@ -1568,9 +1579,12 @@ class QLineEdit(LineEditMore, QWidget):
         return self.get_str("value")
 
     def setText(self, t):  # noqa: N802
+        old = self.text()
         self.__dict__["_good"] = str(t)[:self.maxLength()]
         self.__dict__["_modified_text"] = False  # Qt: setText resets the modified flag
         self.set("set_value", self.__dict__["_good"])
+        if self.text() != old:
+            self.textChanged.emit(self.text())
 
     def clear(self):
         self.setText("")
@@ -1702,10 +1716,13 @@ class QSpinBox(SpinBoxMore, RangeMore, QAbstractSpinBox):
     valueChanged = Signal(int)
     textChanged = Signal(str)
 
+    def _value_changed(self):
+        self.valueChanged.emit(self.value())
+        self.textChanged.emit(self.text())
+
     def _event(self, kind, ref, a, b):
         if kind == EV_CHANGE:
-            self.valueChanged.emit(self.value())
-            self.textChanged.emit(self.text())
+            self._value_changed()
 
 
 class QDoubleSpinBox(DoubleSpinBoxMore, QSpinBox):
@@ -1804,6 +1821,8 @@ class QComboBox(ComboBoxMore, QWidget):
         self._data.insert(index, rest[0] if rest else None)
         self._icons.insert(index, icon)
         self._sync()
+        if len(self._items) == 1:
+            self._index_changed()  # the first item becomes current (Qt)
 
     def removeItem(self, index):  # noqa: N802
         del self._items[index]
@@ -1828,7 +1847,14 @@ class QComboBox(ComboBoxMore, QWidget):
         return int(self.get("value")) if self._items else -1
 
     def setCurrentIndex(self, i):  # noqa: N802
+        old = self.currentIndex()
         self.set("set_value", float(i))
+        if self.currentIndex() != old:
+            self._index_changed()
+
+    def _index_changed(self):
+        self.currentIndexChanged.emit(self.currentIndex())
+        self.currentTextChanged.emit(self.currentText())
 
     def currentText(self):  # noqa: N802
         i = self.currentIndex()
@@ -1850,10 +1876,8 @@ class QComboBox(ComboBoxMore, QWidget):
 
     def _event(self, kind, ref, a, b):
         if kind == EV_CHANGE:
-            i = self.currentIndex()
-            self.currentIndexChanged.emit(i)
-            self.currentTextChanged.emit(self.currentText())
-            self.activated.emit(i)
+            self._index_changed()
+            self.activated.emit(self.currentIndex())
             self.textActivated.emit(self.currentText())
 
 

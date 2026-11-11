@@ -13,13 +13,23 @@ import buipy
 from bui._qtinputs import ButtonMenuMore
 from bui._qtprops import QtProperty, qt_properties
 from bui.components.menus import MenuItem
-from bui.qtcore import QKeySequence, QShortcut
+from bui.qtcore import QKeySequence, QShortcut, _shortcuts
 from bui.qtsyntax import EV_CLICK, QAbstractButton, QFont, QIcon, QPoint, QWidget, Qt, Signal
 
 
 def _plain(text):
     """Qt's iconText / toolTip default: the text without "&" mnemonics and a trailing "..."."""
     return text.replace("&&", "\0").replace("&", "").replace("\0", "&").removesuffix("...").removesuffix("…")
+
+
+def _key_text(seq):
+    """A key sequence as Blender's menus write it: "Ctrl Shift S" (and "Ctrl +" for Ctrl++)."""
+    text = seq.toString()
+    if not text:
+        return None
+    mods, _, key = text[:-1].rpartition("+") if text.endswith("+") else text.rpartition("+")
+    key = key or "+"
+    return " ".join([*filter(None, mods.split("+")), key])
 
 
 class _ActionShortcut(QShortcut):
@@ -128,6 +138,8 @@ class QAction:
             keys = QKeySequence.keyBindings(keys)
         for s in self._bound:
             s.setEnabled(False)  # the kit keeps a binding; an old key stays quiet
+            if s in _shortcuts:
+                _shortcuts.remove(s)
         self._keys = [QKeySequence(k) for k in keys if not QKeySequence(k).isEmpty()]
         self._bound = [_ActionShortcut(self, k) for k in self._keys]
         self.changed.emit()
@@ -281,7 +293,7 @@ class QAction:
         tip = self._tool_tip if self._tool_tip is not None else self.statusTip()
         icon = getattr(self._icon, "name", "") if self.isIconVisibleInMenu() else ""
         return MenuItem(self._text.replace("&", ""), self.trigger, icon=icon or None,
-                        shortcut=self.shortcut().toString().replace("+", " ") or None,
+                        shortcut=_key_text(self.shortcut()),
                         checked=self._checked if self._checkable else None, enabled=self.isEnabled(),
                         submenu=self._menu._items() if self._menu is not None else None, description=tip)
 
@@ -405,6 +417,7 @@ class QMenu:
             title, parent = "", title
         self._title = str(title)
         self._actions: List[QAction] = []
+        self._relays = {}  # action -> the slot relaying its triggered() to this menu
         self._parent = parent
         self._icon = None
         self._default = self._active = None
@@ -465,7 +478,8 @@ class QMenu:
             self._actions.remove(action)
         else:
             action.changed.connect(self._changed)
-            action.triggered.connect(self._relay(action))
+            self._relays[action] = self._relay(action)
+            action.triggered.connect(self._relays[action])
         self._actions.insert(self._actions.index(before) if before in self._actions else len(self._actions),
                              action)
         action._attach(self)
@@ -487,6 +501,7 @@ class QMenu:
             self._actions.remove(action)
             action._detach(self)
             action.changed.disconnect(self._changed)
+            action.triggered.disconnect(self._relays.pop(action))
             self._changed()
 
     def _triggered(self, action):
@@ -681,6 +696,9 @@ class QMenuBar:
             self._actions.remove(action)
             action._detach(self)
             action.changed.disconnect(self._changed)
+            button = self._buttons.pop(action, None)
+            if button is not None:
+                button.setDefaultAction(None)
             self._changed()
 
     def actions(self):
@@ -793,7 +811,9 @@ class QToolButton(ButtonMenuMore, QAbstractButton):
             self._action.changed.disconnect(self._sync)
             self._action._detach(self)
         self._action = action
-        if action is not None:
+        if action is None:
+            self.setIcon(getattr(self, "_own_icon", None))
+        else:
             action._attach(self)
             action.changed.connect(self._sync)
             if action.menu() is not None and self.menu() is None:
@@ -879,6 +899,7 @@ class QButtonGroup(_Exclusive):
     def __init__(self, parent=None):
         self._setup_group()
         self._ids = {}
+        self._slots = {}  # button -> its (signal, slot) connections
 
     def addButton(self, b, id=-1):  # noqa: N802, A002
         """Without an id, ids count down from -2 (Qt)."""
@@ -889,10 +910,13 @@ class QButtonGroup(_Exclusive):
         self._members.append(b)
         self._ids[b] = int(id)
         b._group = self
-        b.clicked.connect(self._relay(b, self.buttonClicked, self.idClicked))
-        b.pressed.connect(self._relay(b, self.buttonPressed, self.idPressed))
-        b.released.connect(self._relay(b, self.buttonReleased, self.idReleased))
-        b.toggled.connect(lambda on, b=b: self._toggled(b, on))
+        self._slots[b] = slots = (
+            (b.clicked, self._relay(b, self.buttonClicked, self.idClicked)),
+            (b.pressed, self._relay(b, self.buttonPressed, self.idPressed)),
+            (b.released, self._relay(b, self.buttonReleased, self.idReleased)),
+            (b.toggled, lambda on, b=b: self._toggled(b, on)))
+        for signal, slot in slots:
+            signal.connect(slot)
 
     def _relay(self, b, button_signal, id_signal):
         def relay(*_):
@@ -913,6 +937,8 @@ class QButtonGroup(_Exclusive):
         if b in self._members:
             self._members.remove(b)
             del self._ids[b]
+            for signal, slot in self._slots.pop(b):
+                signal.disconnect(slot)
             b._group = None
 
     def buttons(self):

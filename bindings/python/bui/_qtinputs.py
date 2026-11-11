@@ -97,13 +97,20 @@ class RangeMore:
         return self._num(self.get("value"))
 
     def setValue(self, v):  # noqa: N802
+        """Qt emits valueChanged when the value changes, whoever changed it (clamped to the range)."""
+        old = self.value()
         self.set("set_value", float(v))
+        if self.value() != old:
+            self._value_changed()
 
     def setSingleStep(self, s):  # noqa: N802
         self.set("step", float(s))
 
     def singleStep(self):  # noqa: N802
         return self._num(self.get("step"))
+
+    def _value_changed(self):
+        self.valueChanged.emit(self.value())
 
     @staticmethod
     def _num(v):
@@ -208,7 +215,7 @@ class SpinBoxMore:
         return str(int(v))
 
     def valueFromText(self, text):  # noqa: N802
-        return int(float(text))
+        return int(text)
 
     def cleanText(self):  # noqa: N802
         return self.textFromValue(self.value())
@@ -273,7 +280,7 @@ class SliderMore:
         """The kit changed the value (dragged or typed)."""
         self.sliderMoved.emit(self.value())
         if self.hasTracking() or not self.isSliderDown():
-            self.valueChanged.emit(self.value())
+            self._value_changed()
         else:
             self.__dict__["_pending"] = True
 

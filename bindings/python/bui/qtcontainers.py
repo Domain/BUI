@@ -655,7 +655,8 @@ class QGroupBox(QWidget):
             from bui.qtsyntax import QCheckBox
             self._check = QCheckBox(self._title)
             self._check.setChecked(True)
-            self._check.toggled.connect(self._user_toggled)
+            self._check.toggled.connect(self._toggled)
+            self._check.clicked.connect(self.clicked.emit)
             self.set("text", "")
             buipy.KitNode.add(self, self._check, 0)
             self._check.geom(PACK, side=0, fill=1)
@@ -669,16 +670,12 @@ class QGroupBox(QWidget):
         return self._check is not None and self._check.isChecked()
 
     def setChecked(self, b):  # noqa: N802
-        if self._check is None or bool(b) == self._check.isChecked():
-            return
-        self._check.setChecked(b)
-        self._apply_check(bool(b))
-        self.toggled.emit(bool(b))
+        if self._check is not None:
+            self._check.setChecked(b)  # its toggled() does the rest
 
-    def _user_toggled(self, on):
+    def _toggled(self, on):
         self._apply_check(on)
         self.toggled.emit(on)
-        self.clicked.emit(on)
 
     def _apply_check(self, on):
         """Unchecked disables everything inside (Qt); checking gives each its own state back."""

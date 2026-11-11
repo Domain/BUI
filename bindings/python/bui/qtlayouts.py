@@ -611,9 +611,9 @@ class QFormLayout(QGridLayout):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._rows = []  # (label or None, field or None, spanning)
+        self._growth = self.AllNonFixedFieldsGrow
         self._label_align = Qt.AlignRight | Qt.AlignVCenter
         self._form_align = Qt.AlignLeft | Qt.AlignTop
-        self._growth = self.AllNonFixedFieldsGrow
         self._wrap = self.DontWrapRows
 
     def addRow(self, label, field=None):  # noqa: N802
@@ -643,7 +643,7 @@ class QFormLayout(QGridLayout):
                 self._append(label, (r, 0, 1, 1, 0))
             if field is not None:
                 self._append(field, (r, 1, 1, 1, 0))
-        self.setColumnStretch(1, 1)
+        self.setColumnStretch(1, 0 if self._growth == self.FieldsStayAtSizeHint else 1)
 
     def rowCount(self):  # noqa: N802
         return len(self._rows)
@@ -699,8 +699,8 @@ class QFormLayout(QGridLayout):
         self.setWidget(row, role, item._w)
 
     def isRowVisible(self, row):  # noqa: N802
-        label, field, _ = self._rows[row]
-        return field.isVisible() if hasattr(field, "isVisible") else bool(field.get("visible"))
+        node = next((n for n in self._rows[row][1::-1] if n is not None), None)
+        return node is not None and bool(node.get("visible"))
 
     def setRowVisible(self, row, visible):  # noqa: N802
         for node in self._rows[row][:2]:

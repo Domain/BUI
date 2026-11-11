@@ -364,7 +364,7 @@ def test_line_edit_limits_and_validators():
     e.setMaxLength(3)
     assert e.text() == "hel" and e.maxLength() == 3
     type_into(e, "abcdef")
-    assert e.text() == "abc" and rejected and changed == [("abc",)] and e.isModified()
+    assert e.text() == "abc" and rejected and changed == [("hel",), ("abc",)] and e.isModified()
     e.setMaxLength(100)
     e.setText("12")
     assert not e.isModified(), "setText clears the modified flag"
@@ -770,7 +770,7 @@ def test_spin_boxes_sliders_and_button_box():
     sl.setTracking(False)
     values, moved = spy(sl.valueChanged), spy(sl.sliderMoved)
     sl._on_event(EV_PRESS, "0 1", 0, 0)
-    sl.setValue(10)
+    sl.set("set_value", 10.0)  # the kit's drag changes the value, then reports it
     sl._event(EV_CHANGE, None, 0, 0)
     assert sl.isSliderDown() and moved == [(10,)] and values == [], "no valueChanged while held"
     from bui.components.core import EV_RELEASE
@@ -816,6 +816,73 @@ def test_combo_icons_docks_application():
     finally:
         q.QApplication.setFont(None)
     assert win in q.QApplication.topLevelWidgets() and dock not in q.QApplication.topLevelWidgets()
+
+def test_setters_emit_and_regressions():
+    """Qt emits the change signals when code changes a value (once, and only on a change)."""
+    s = q.QSlider()
+    got = spy(s.valueChanged)
+    s.setValue(5)
+    s.setValue(5)
+    assert got == [(5,)]
+    sp = q.QSpinBox()
+    texts = spy(sp.textChanged)
+    sp.setValue(3)
+    assert texts == [("3",)]
+    c = q.QComboBox()
+    first = spy(c.currentIndexChanged)
+    c.addItems(["a", "b"])
+    c.setCurrentIndex(1)
+    assert first == [(0,), (1,)], "the first item becomes current, then the one set"
+    e = q.QLineEdit()
+    edited, changed = spy(e.textEdited), spy(e.textChanged)
+    e.setText("x")
+    assert changed == [("x",)] and edited == []
+    cb = q.QCheckBox()
+    states = spy(cb.stateChanged)
+    cb.setChecked(True)
+    assert states == [(q.Qt.Checked,)]
+    parent = q.QWidget()
+    r1, r2 = q.QRadioButton("1", parent), q.QRadioButton("2", parent)
+    off = spy(r1.toggled)
+    r1.setChecked(True)
+    r2.setChecked(True)
+    assert off == [(True,), (False,)], "a sibling turned off says so"
+
+    # a checked button in an exclusive group stays checked when clicked again
+    group = q.QButtonGroup()
+    a, b = q.QPushButton("a"), q.QPushButton("b")
+    for x in (a, b):
+        x.setCheckable(True)
+        group.addButton(x)
+    a.click()
+    a.click()
+    assert a.isChecked()
+    # removing and adding again doesn't relay twice
+    clicks = spy(group.buttonClicked)
+    group.removeButton(b)
+    group.addButton(b)
+    b.click()
+    assert clicks == [(b,)]
+    menu = q.QMenu()
+    act = menu.addAction("x")
+    menu.removeAction(act)
+    menu.addAction(act)
+    fired = spy(menu.triggered)
+    act.trigger()
+    assert fired == [(act,)]
+
+    # form rows keep the field growth policy
+    w = q.QWidget()
+    form = q.QFormLayout(w)
+    form.setFieldGrowthPolicy(q.QFormLayout.FieldsStayAtSizeHint)
+    form.addRow("Name", q.QLineEdit())
+    assert form.columnStretch(1) == 0
+    # a frame's layout can be replaced while it sits in the frame's box
+    frame = q.QFrame()
+    frame.setFrameShape(q.QFrame.Box)
+    q.QVBoxLayout(frame)
+    frame.setLayout(q.QHBoxLayout())
+    render(frame)
 
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
