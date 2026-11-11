@@ -6,13 +6,13 @@ order: 20
 status: preview
 languages: ["python"]
 badges: ["Partial"]
-sources: ["docs/qt.md", "SYNTAX_COVERAGE.md", "examples/qt_syntax_demo.py", "bindings/python/bui/qtsyntax.py", "bindings/python/bui/qtcontainers.py", "bindings/python/bui/qtviews.py", "bindings/python/bui/qtdialogs.py", "bindings/python/bui/qtcore.py", "bindings/python/bui/qtactions.py", "bindings/python/bui/qtlayouts.py", "bindings/python/bui/qtgui.py", "bindings/python/bui/_qtinputs.py", "bindings/python/bui/_qtwidget.py", "tools/qt_coverage.py", "bindings/python/bui/host.py", "docs/getting-started.md"]
+sources: ["docs/qt.md", "SYNTAX_COVERAGE.md", "examples/qt_syntax_demo.py", "bindings/python/bui/qtsyntax.py", "bindings/python/bui/qtcontainers.py", "bindings/python/bui/qtviews.py", "bindings/python/bui/qtdialogs.py", "bindings/python/bui/qtcore.py", "bindings/python/bui/qtactions.py", "bindings/python/bui/qtlayouts.py", "bindings/python/bui/qtgui.py", "bindings/python/bui/qtdates.py", "bindings/python/bui/_qtinputs.py", "bindings/python/bui/_qtwidget.py", "tools/qt_coverage.py", "bindings/python/bui/host.py", "docs/getting-started.md"]
 ---
 
 If your hands already know Qt, `blenderui.qtsyntax` lets them keep typing: `QApplication`, `QWidget`, `QVBoxLayout`, `clicked.connect(...)`. BUI runs that code on its own C runtime and draws it with Blender's widgets. **Neither Qt nor PySide is needed.**
 
 <Callout type="warning" title="Status: partial">
-The everyday subset on this page works and is tested. Counted against Qt's own headers (by `tools/qt_coverage.py`), **52%** of the public methods, signals and slots on the 36 core widget classes exist, 34% across all of Qt's widget and GUI classes. Anything that isn't there raises `AttributeError`. A few setters are accepted and ignored: window icons, cursors, word wrap, echo mode and the like (`docs/qt.md` lists them). See [what's missing](#whats-missing).
+The everyday subset on this page works and is tested. Counted against Qt's own headers (by `tools/qt_coverage.py`), **57%** of the public methods, signals and slots on the 36 core widget classes exist, 37% across all of Qt's widget and GUI classes. Anything that isn't there raises `AttributeError`. A few setters are accepted and ignored: window icons, cursors, word wrap, echo mode and the like (`docs/qt.md` lists them). See [what's missing](#whats-missing).
 </Callout>
 
 <Figure
@@ -77,6 +77,7 @@ There's no Qt underneath. Each piece of Qt maps onto something in BUI:
 | Painting | `QPainter`, `QPen`, `QBrush`, `QColor`, `QFont`, `QPixmap`, `QImage` |
 | Events | Override `mousePressEvent`, `mouseReleaseEvent`, `mouseMoveEvent`, `mouseDoubleClickEvent`, `keyPressEvent`, `keyReleaseEvent`, `wheelEvent`, `enterEvent`, `leaveEvent`, `resizeEvent`, `contextMenuEvent`, `timerEvent`, `closeEvent` and `paintEvent` |
 | Values | `Qt` constants (alignment, keys, orientation, check states, window states and flags), `QPoint`, `QSize`, `QRect`, `QMargins`, `QSizePolicy`, `QIcon`, `QFontMetrics`, `QPalette` (Blender's theme colors), `QCursor`, `QScreen`, validators |
+| Dates | `QDate`, `QTime`, `QDateTime`, `QDateTimeEdit`, `QDateEdit` and `QTimeEdit` (a Blender number field per section of the format, in an aligned row), `QCalendarWidget` |
 | Dialogs | `QDialogButtonBox`, `QMessageBox` and `QInputDialog`, below; `QFileDialog` (`getOpenFileName`, `getOpenFileNames`, `getSaveFileName`, `getExistingDirectory`) shows Blender's File Browser, and `BUI_FILEDIALOG=native` uses the operating system's dialogs |
 
 The member-by-member list is in [`SYNTAX_COVERAGE.md`](https://github.com/ppmpreetham/BUI/blob/main/SYNTAX_COVERAGE.md#qt-syntax-buiqtsyntax).
@@ -196,7 +197,7 @@ if QMessageBox.question(win, "Quit", "Save changes?") == QMessageBox.Yes:
 
 Being upfront, so you don't find out the hard way:
 
-- **Classes:** `QDateEdit` and friends, `QCalendarWidget`, `QThread`, `QGraphicsScene`, OpenGL widgets.
+- **Classes:** `QThread`, `QGraphicsScene`, OpenGL widgets.
 - **Widgets:** tristate check boxes and editable combo boxes.
 - **Model/view:** delegates, editing inside a view, and selecting more than one row.
 - **Docks:** they stay docked (no floating or tabbed docks).

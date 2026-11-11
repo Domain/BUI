@@ -5,7 +5,7 @@ layouts, `clicked.connect(...)`) that runs on BUI's C kit, with Blender's
 look. Neither Qt nor PySide is needed.
 
 > **Status: partial.** Measured against Qt's own headers by
-> `tools/qt_coverage.py`: 802 of 1,555 public methods, signals, slots and event handlers on 36 core widget classes (52%), and 1,092 of 3,205 across all 142 exported widget and GUI classes (34%).
+> `tools/qt_coverage.py`: 885 of 1,555 public methods, signals, slots and event handlers on 36 core widget classes (57%), and 1,176 of 3,205 across all 142 exported widget and GUI classes (37%).
 > See [Coverage](#coverage) for what's missing.
 
 ![Qt syntax on BUI](images/qt.png)
@@ -92,6 +92,7 @@ is much lower. See [getting-started.md](getting-started.md#gpu-rendering).
 | Painting | `QPainter` (`fillRect`, `drawRect`, `drawRoundedRect`, `drawEllipse`, `drawLine`, `drawPolyline`, `drawPolygon`, `drawArc`, `drawPie`, `drawText`, `drawPixmap`, `translate`, `save`, `restore`, `setOpacity`), `QPen`, `QBrush`, `QColor`, `QFont`, `QPixmap` / `QImage` |
 | Events | Override `mousePressEvent`, `mouseReleaseEvent`, `mouseMoveEvent`, `mouseDoubleClickEvent`, `keyPressEvent`, `keyReleaseEvent`, `wheelEvent`, `enterEvent`, `leaveEvent`, `resizeEvent`, `contextMenuEvent`, `timerEvent`, `closeEvent`, `paintEvent`. Event types: `QMouseEvent`, `QKeyEvent`, `QWheelEvent`, `QResizeEvent`, `QContextMenuEvent`, `QTimerEvent`, `QPaintEvent`, `QCloseEvent`. |
 | Values | `Qt` constants (alignment, keys, orientation, check states, window states and flags), `QPoint`, `QSize`, `QRect`, `QMargins`, `QSizePolicy`, `QIcon`, `QFontMetrics`, `QPalette` (Blender's theme colors), `QCursor.pos`, `QScreen`, validators (`QIntValidator`, `QDoubleValidator`, `QRegularExpressionValidator`) |
+| Dates | `QDate`, `QTime`, `QDateTime` (Qt's format strings, `Qt.ISODate`), `QDateTimeEdit` / `QDateEdit` / `QTimeEdit` (a Blender number field per section of the display format, in an aligned row; named months and AM/PM are dropdowns), `QCalendarWidget` (a month of day buttons under a header row) |
 | Dialogs | `QDialogButtonBox` (standard buttons and roles), `QMessageBox`, `QInputDialog`, `QFileDialog` (`getOpenFileName(s)`, `getSaveFileName`, `getExistingDirectory`: Blender's File Browser; `BUI_FILEDIALOG=native` for the OS dialogs) |
 
 Member-by-member tables: [../SYNTAX_COVERAGE.md](../SYNTAX_COVERAGE.md#qt-syntax-buiqtsyntax).
@@ -177,7 +178,7 @@ if QMessageBox.question(win, "Quit", "Save changes?") == QMessageBox.Yes:
 `py tools/qt_coverage.py` counts it from Qt's own headers in `reference/qtbase` (there's no Qt in
 the test environment): every exported class's public methods, slots, signals and overridable
 `*Event` handlers, and whether the `bui.qtsyntax` class of the same name has each one. It writes
-the per-class table to [qt-coverage.md](qt-coverage.md). Today: 802 of 1,555 public methods, signals, slots and event handlers on 36 core widget classes (52%), and 1,092 of 3,205 across all 142 exported widget and GUI classes (34%). (The earlier
+the per-class table to [qt-coverage.md](qt-coverage.md). Today: 885 of 1,555 public methods, signals, slots and event handlers on 36 core widget classes (57%), and 1,176 of 3,205 across all 142 exported widget and GUI classes (37%). (The earlier
 "220 of 920" figure came from a looser count over 25 classes.)
 
 Missing names raise `AttributeError`. A few setters are accepted and ignored (word wrap, echo mode,
@@ -196,7 +197,7 @@ horizontal), a scroll area's horizontal policy and `widgetResizable`, the status
 a layout's per-side margins (the kit pads a frame evenly), and an action's priority, menu role and
 auto-repeat.
 
-**Missing:** `QDateEdit` and friends, `QCalendarWidget`, `QThread`, drag and drop, delegates and editing inside views, multi-selection, floating docks, tristate check boxes, editable combo boxes, `QGraphicsScene`, OpenGL widgets, rich text and stylesheet selectors.
+**Missing:** `QThread`, drag and drop, delegates and editing inside views, multi-selection, floating docks, tristate check boxes, editable combo boxes, `QGraphicsScene`, OpenGL widgets, rich text and stylesheet selectors.
 
 **Plan.** Reach parity with the tkinter layer:
 

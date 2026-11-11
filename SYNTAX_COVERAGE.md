@@ -42,6 +42,8 @@ Anything not listed raises `AttributeError` — nothing fails silently.
 | `Signal` (`pyqtSignal`, `Signal_`) | class-level signals; `connect/disconnect/emit`; slots taking fewer arguments are called with fewer |
 | `QTimer`, `QPropertyAnimation`, `QEasingCurve` | `start/stop/singleShot/setInterval/setSingleShot`, `timeout`; animation at 120 Hz with easing, `finished/valueChanged` |
 | Value types | `QColor`, `QPen`, `QBrush`, `QFont`, `QFontMetrics`, `QPalette`, `QPoint`, `QSize`, `QRect`, `QPixmap`/`QImage`, `QIcon`, `QMargins`, `QSizePolicy`, `QCursor`, `QScreen`, validators, `Qt` constants, events (`QMouseEvent`, `QKeyEvent`, `QWheelEvent`, `QResizeEvent`, `QContextMenuEvent`, `QTimerEvent`, `QPaintEvent`, `QCloseEvent`) |
+| `QDate` / `QTime` / `QDateTime` | Qt's formats (`toString`, `fromString`, `Qt.ISODate`), arithmetic (`addDays/addMonths/addYears/addSecs`, `daysTo/secsTo`), `currentDate/currentTime/currentDateTime`, epoch seconds |
+| `QDateTimeEdit` / `QDateEdit` / `QTimeEdit`, `QCalendarWidget` | `setDisplayFormat` (a field per section), `date/time/dateTime` and setters, ranges, sections (`currentSection`, `stepBy`), `dateChanged/timeChanged/dateTimeChanged`; calendar: `setSelectedDate/selectedDate`, `setDateRange`, `setFirstDayOfWeek`, `showNextMonth/...`, `setCurrentPage`, `selectionChanged/clicked/currentPageChanged` |
 | `QDialogButtonBox` | standard buttons with Qt's roles, `addButton(text, role)/removeButton/button/buttonRole/setCenterButtons`, `clicked/accepted/rejected/helpRequested` |
 | `QMessageBox` / `QFileDialog` | real dialogs: icons, standard buttons, `exec()` returns the button; static `information/warning/critical/question/about` / Blender's File Browser (`BUI_FILEDIALOG=native` for the OS dialogs) |
 | `QInputDialog` | `getText/getInt/getDouble/getItem` and the instance API (`setInputMode`, `setLabelText`, value setters and getters, `*ValueSelected`) |
@@ -109,14 +111,14 @@ as `tk scaling` and `wm`).
 ## Not implemented
 
 - **Qt:** QSS selectors/pseudo-states, `QGraphicsScene`, delegates and editing in views,
-  `QDateEdit` and `QCalendarWidget`, tristate check boxes, editable combo boxes, rich text,
+  tristate check boxes, editable combo boxes, rich text,
   `QThread`, drag and drop, OpenGL widgets.
   `py tools/qt_coverage.py` measures the rest against Qt's headers ([docs/qt-coverage.md](docs/qt-coverage.md)).
 
 ## Extending
 
 Add the member to the facade class in `bindings/python/bui/qtsyntax.py` (or its feature
-modules `qtactions`, `qtlayouts`, `qtcontainers`, `qtviews`, `qtdialogs`, `qtcore`, `qtgui`, and the
+modules `qtactions`, `qtlayouts`, `qtcontainers`, `qtviews`, `qtdialogs`, `qtcore`, `qtgui`, `qtdates`, and the
 `_qtinputs` / `_qtwidget` mixins; Qt properties are one line each with
 `bui._qtprops.qt_properties`) or
 `bindings/python/bui/tksyntax/`, mapping it onto kit node properties
