@@ -136,7 +136,7 @@ One-time setup:
   "could not be found or you do not have permission"). Publish it once by hand, after
   `@blender-ui/native` is out (it depends on it): `cd bindings/svelte && npm publish --access public`,
   logged in as a member of the `@blender-ui` organization. Then add the trusted publisher (the same
-  form as above). Until then `release.yml` skips it with a warning and `tools/release.py` shows it
+  form as above). The same goes for `@blender-ui/vue` (`cd bindings/vue && npm publish --access public`). Until then `release.yml` skips it with a warning and `tools/release.py` shows it
   as MANUAL, not as a failure.
 - **PyPI:** no secret, see above.
 
