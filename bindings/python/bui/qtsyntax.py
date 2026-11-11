@@ -30,6 +30,7 @@ from typing import Callable, List, Optional
 import buipy
 
 from bui import _realtk, filebrowser, host
+from bui._qtwidget import QWidgetMore
 from bui.components.core import (EV_ACTIVATE, EV_CHANGE, EV_CLICK, EV_DOUBLE, EV_ENTER,  # noqa: F401
                                  EV_KEY, EV_LEAVE, EV_MOTION, EV_PRESS, EV_RELEASE,
                                  EV_RENAME, EV_SUBMIT, EV_TOGGLE, EV_WHEEL)
@@ -63,6 +64,17 @@ class Qt:
     ScrollBarAlwaysOff, ScrollBarAsNeeded = 1, 0
     ItemIsEditable, ItemIsSelectable, ItemIsEnabled = 2, 1, 32
     DisplayRole, UserRole = 0, 256
+    DecorationRole, EditRole, ToolTipRole, StatusTipRole, WhatsThisRole, CheckStateRole = 1, 2, 3, 4, 5, 10
+    ItemIsUserCheckable, ItemIsDragEnabled, ItemIsDropEnabled = 16, 4, 8
+    MatchExactly, MatchContains, MatchStartsWith, MatchEndsWith = 0, 1, 2, 3
+    NoFocus, TabFocus, ClickFocus, StrongFocus, WheelFocus = 0, 1, 2, 11, 15
+    NoContextMenu, DefaultContextMenu, ActionsContextMenu, CustomContextMenu = 0, 1, 2, 3
+    LeftToRight, RightToLeft = 0, 1
+    LeftDockWidgetArea, RightDockWidgetArea, TopDockWidgetArea, BottomDockWidgetArea = 1, 2, 4, 8
+    AllDockWidgetAreas, NoDockWidgetArea = 15, 0
+    LeftToolBarArea, RightToolBarArea, TopToolBarArea, BottomToolBarArea = 1, 2, 4, 8
+    ToolButtonIconOnly, ToolButtonTextOnly, ToolButtonTextBesideIcon, ToolButtonTextUnderIcon = 0, 1, 2, 3
+    ToolButtonFollowStyle = 4
     white, black, red, green, blue, gray = "#ffffff", "#000000", "#ff0000", "#00ff00", \
         "#0000ff", "#808080"
 
@@ -95,7 +107,7 @@ class Signal:
             return self
         bound = obj.__dict__.get(self._name)
         if bound is None:
-            bound = BoundSignal(self._types)
+            bound = BoundSignal(self._types, obj)
             obj.__dict__[self._name] = bound
         return bound
 
@@ -104,9 +116,10 @@ Signal_ = pyqtSignal = Signal
 
 
 class BoundSignal:
-    def __init__(self, types=()):
+    def __init__(self, types=(), owner=None):
         self._slots: List[Callable] = []
         self._types = types
+        self._owner = owner  # its signals stay quiet while the owner's blockSignals(True) holds
 
     def connect(self, slot):
         self._slots.append(slot)
@@ -119,6 +132,8 @@ class BoundSignal:
             self._slots.remove(slot)
 
     def emit(self, *args):
+        if self._owner is not None and self._owner.__dict__.get("_blocked"):
+            return
         for slot in list(self._slots):
             try:
                 slot(*args)
@@ -448,6 +463,31 @@ class QApplication:
     def instance():
         return QApplication._instance
 
+    @staticmethod
+    def clipboard():
+        from bui.qtcore import QClipboard
+        return QClipboard.instance()
+
+    @staticmethod
+    def setOrganizationName(name):  # noqa: N802
+        from bui.qtcore import QSettings
+        QSettings._org = str(name)
+
+    @staticmethod
+    def organizationName():  # noqa: N802
+        from bui.qtcore import QSettings
+        return QSettings._org
+
+    @staticmethod
+    def setApplicationName(name):  # noqa: N802
+        from bui.qtcore import QSettings
+        QSettings._app = str(name)
+
+    @staticmethod
+    def applicationName():  # noqa: N802
+        from bui.qtcore import QSettings
+        return QSettings._app
+
     def exec(self) -> int:
         for w in list(_pending_show):
             w._open()
@@ -471,7 +511,7 @@ class QApplication:
     def setStyle(self, *a):  # noqa: N802
         pass
 
-    setStyleSheet = setApplicationName = setStyle
+    setStyleSheet = setStyle
 
 
 QCoreApplication = QApplication
@@ -660,7 +700,7 @@ _EVENT_METHODS = ("mousePressEvent", "mouseReleaseEvent", "mouseMoveEvent",
                   "leaveEvent")
 
 
-class QWidget(buipy.KitNode):
+class QWidget(QWidgetMore, buipy.KitNode):
     KIND = "frame"
 
     def __init__(self, parent=None, *args, **kw):
@@ -844,7 +884,10 @@ class QWidget(buipy.KitNode):
         if self._parent_widget is None and self._layout is not None or self._window:
             self.show() if b else self.hide()
             return
+        was = self.isVisible()
         self.set("visible", bool(b))
+        if was != bool(b):
+            (self.showEvent if b else self.hideEvent)(QEvent())
 
     def isVisible(self):  # noqa: N802
         return bool(self.get("visible"))
@@ -855,6 +898,7 @@ class QWidget(buipy.KitNode):
             self._window = None
         else:
             self.set("visible", False)
+        self.hideEvent(QEvent())
 
     def setToolTip(self, text):  # noqa: N802
         self.set("description", str(text))
@@ -896,7 +940,7 @@ class QWidget(buipy.KitNode):
     def setAttribute(self, *a):  # noqa: N802
         pass
 
-    setWindowIcon = setWindowFlags = setFocusPolicy = setContentsMargins = setAttribute
+    setWindowIcon = setWindowFlags = setContentsMargins = setAttribute
     installEventFilter = setMouseTracking = setAutoFillBackground = setAttribute
 
     def setFocus(self, *a):  # noqa: N802
@@ -917,6 +961,7 @@ class QWidget(buipy.KitNode):
     def show(self):
         if self._parent_widget is not None:
             self.set("visible", True)
+            self.showEvent(QEvent())
             return
         if QApplication._instance is None or getattr(QApplication, "_running", False) \
                 or host._windows:
@@ -924,11 +969,14 @@ class QWidget(buipy.KitNode):
         else:
             _pending_show.append(self)
             self._open()
+        self.showEvent(QEvent())
 
     def _open(self):
         if self._window is not None:
             return
         self._ctx = buipy.KitContext(self)
+        from bui.qtcore import bind_shortcuts
+        bind_shortcuts(self)
         if self._menubar is not None:
             self._ctx.set_header(self._menubar._node)
         size = self._size or tuple(max(a, b) for a, b in zip(self.natural(), (200, 100)))
@@ -1062,17 +1110,85 @@ def _custom_widgets():
     return [o for o in gc.get_objects() if isinstance(o, QWidget) and o._custom_paint]
 
 
+_AREA_SIDE = {1: 2, 2: 3, 4: 0, 8: 1}  # Qt's left / right / top / bottom areas -> pack sides
+
+
 class QMainWindow(QWidget):
     def _setup(self):
         self._central = None
         self._status = None
+        self._toolbars = []  # (toolbar, area)
+        self._docks = []  # (dock, area)
+
+    def _repack(self):
+        """Pack order decides who gets the edges: status bar, toolbars, docks, then the central widget."""
+        order = [(self._status, 1)] if self._status is not None else []
+        order += [(t, _AREA_SIDE[a]) for t, a in self._toolbars] + [(d, _AREA_SIDE[a]) for d, a in self._docks]
+        for w, _ in order + ([(self._central, 0)] if self._central is not None else []):
+            if w.parent is self:
+                self.remove(w)
+        for w, side in order:
+            self.add(w)
+            w.geom(PACK, side=side, fill=2 if side >= 2 else 1)
+        if self._central is not None:
+            self.add(self._central)
+            self._central.geom(PACK, fill=3, expand=1)
 
     def setCentralWidget(self, w):  # noqa: N802
-        if self._central is not None:
+        if self._central is not None and self._central.parent is self:
             self.remove(self._central)
         self._central = w
-        self.add(w)
-        w.geom(PACK, fill=3, expand=1)
+        if w.parent is not None:
+            w.parent.remove(w)
+        self._repack()
+
+    def takeCentralWidget(self):  # noqa: N802
+        w = self._central
+        if w is not None:
+            self.remove(w)
+            self._central = None
+        return w
+
+    def addToolBar(self, *args):  # noqa: N802 - (toolbar) / (title) / (area, toolbar)
+        from bui.qtcontainers import QToolBar
+        area, bar = (args[0], args[1]) if len(args) == 2 else (Qt.TopToolBarArea, args[0])
+        if not isinstance(bar, QToolBar):
+            bar = QToolBar(str(bar))
+        self.removeToolBar(bar)
+        if bar.parent is not None:
+            bar.parent.remove(bar)
+        self._toolbars.append((bar, area))
+        self._repack()
+        return bar
+
+    def removeToolBar(self, bar):  # noqa: N802
+        self._toolbars = [(t, a) for t, a in self._toolbars if t is not bar]
+        if bar.parent is self:
+            self.remove(bar)
+
+    def toolBarArea(self, bar):  # noqa: N802
+        return next((a for t, a in self._toolbars if t is bar), 0)
+
+    def addDockWidget(self, area, dock, *a):  # noqa: N802
+        self.removeDockWidget(dock)
+        if dock.parent is not None:
+            dock.parent.remove(dock)
+        self._docks.append((dock, area))
+        self._repack()
+
+    def removeDockWidget(self, dock):  # noqa: N802
+        self._docks = [(d, a) for d, a in self._docks if d is not dock]
+        if dock.parent is self:
+            self.remove(dock)
+
+    def dockWidgetArea(self, dock):  # noqa: N802
+        return next((a for d, a in self._docks if d is dock), Qt.NoDockWidgetArea)
+
+    def setStatusBar(self, bar):  # noqa: N802
+        if self._status is not None and self._status.parent is self:
+            self.remove(self._status)
+        self._status = bar
+        self._repack()
 
     def centralWidget(self):  # noqa: N802
         return self._central
@@ -1084,9 +1200,7 @@ class QMainWindow(QWidget):
 
     def statusBar(self):  # noqa: N802
         if self._status is None:
-            self._status = QStatusBar()
-            self.add(self._status)
-            self._status.geom(PACK, side=1, fill=1)
+            self.setStatusBar(QStatusBar())
         return self._status
 
 
@@ -1102,16 +1216,28 @@ class QDialog(QWidget):
         return getattr(self, "_result", 0)
 
     exec_ = exec
+    finished = Signal(int)
+    Rejected, Accepted = 0, 1
+
+    def result(self):
+        return getattr(self, "_result", 0)
+
+    def setResult(self, r):  # noqa: N802
+        self._result = r
+
+    def done(self, r):
+        """Close with result r (accept() is done(1), reject() is done(0))."""
+        self._result = r
+        self.finished.emit(r)
+        self.close()
 
     def accept(self):
-        self._result = 1
         self.accepted.emit()
-        self.close()
+        self.done(self.Accepted)
 
     def reject(self):
-        self._result = 0
         self.rejected.emit()
-        self.close()
+        self.done(self.Rejected)
 
 
 class QFrame(QWidget):
@@ -1420,8 +1546,17 @@ class QAbstractButton(QWidget):
     def animateClick(self, *a):  # noqa: N802
         self.click()
 
-    def setShortcut(self, *a):  # noqa: N802
-        pass
+    def setShortcut(self, key):  # noqa: N802
+        from bui.qtcore import QShortcut
+        if getattr(self, "_shortcut", None) is None:
+            self._shortcut = QShortcut(key, self, self.click)
+        else:
+            self._shortcut.setKey(key)
+
+    def shortcut(self):
+        from bui.qtcore import QKeySequence
+        s = getattr(self, "_shortcut", None)
+        return s.key() if s is not None else QKeySequence()
 
 
 class QPushButton(QAbstractButton):
@@ -2726,20 +2861,6 @@ class QPainter:
 # Dialog stubs (no blocking native dialogs)
 
 
-class QMessageBox:
-    Ok, Cancel, Yes, No = 0x400, 0x400000, 0x4000, 0x10000
-
-    @staticmethod
-    def information(parent, title, text, *a, **kw):
-        return QMessageBox.Ok
-
-    warning = critical = about = information
-
-    @staticmethod
-    def question(parent, title, text, *a, **kw):
-        return QMessageBox.Yes
-
-
 class QFileDialog:
     @staticmethod
     def _blender(kind, caption, directory, filter, multiple=False):  # noqa: A002
@@ -2794,4 +2915,12 @@ class QFileDialog:
             return ""
 
 
-QStackedWidget = QWidget
+
+# Qt's other widgets, models, dialogs and core classes: feature modules that build on the above
+from bui.qtcontainers import (QDockWidget, QSplitter, QStackedWidget, QTabBar, QToolBar,  # noqa: E402,F401
+                              QToolBox)
+from bui.qtviews import (QAbstractItemModel, QAbstractListModel, QAbstractTableModel,  # noqa: E402,F401
+                         QItemSelectionModel, QListView, QModelIndex, QPersistentModelIndex,
+                         QStandardItem, QStandardItemModel, QStringListModel, QTableView, QTreeView)
+from bui.qtdialogs import QInputDialog, QMessageBox  # noqa: E402,F401
+from bui.qtcore import QClipboard, QKeySequence, QSettings, QShortcut  # noqa: E402,F401
