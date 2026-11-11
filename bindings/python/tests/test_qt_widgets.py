@@ -349,6 +349,177 @@ def test_object_and_widget_behavior():
     assert w.actions() == []
 
 
+def type_into(edit, text):
+    edit.set("set_value", text)
+    edit._on_event(EV_CHANGE, "", 0, 0)
+
+
+def test_line_edit_limits_and_validators():
+    from bui.qtgui import QIntValidator, QRegularExpressionValidator
+    e = q.QLineEdit("hello")
+    changed, rejected = spy(e.textChanged), spy(e.inputRejected)
+    assert not e.isModified()
+    e.setMaxLength(3)
+    assert e.text() == "hel" and e.maxLength() == 3
+    type_into(e, "abcdef")
+    assert e.text() == "abc" and rejected and changed == [("abc",)] and e.isModified()
+    e.setMaxLength(100)
+    e.setText("12")
+    assert not e.isModified(), "setText clears the modified flag"
+    e.setValidator(QIntValidator(0, 99))
+    type_into(e, "1x")
+    assert e.text() == "12", "an Invalid edit is refused"
+    type_into(e, "45")
+    assert e.text() == "45" and e.hasAcceptableInput()
+    e.setValidator(QRegularExpressionValidator("[a-z]+@x"))
+    type_into(e, "bob")
+    assert e.text() == "bob" and not e.hasAcceptableInput(), "Intermediate is kept but not acceptable"
+    e.setPlaceholderText("name")
+    assert e.placeholderText() == "name"
+
+
+def test_spin_slider_progress():
+    s = q.QSpinBox()
+    s.setRange(0, 10)
+    s.setPrefix("$")
+    s.setSuffix(" kg")
+    s.setValue(3)
+    assert s.text() == "$3 kg" and s.cleanText() == "3" and s.prefix() == "$"
+    s.setWrapping(True)
+    s.stepBy(9)
+    assert s.value() == 1, "wrapping steps round from the top"
+    s.setSpecialValueText("none")
+    s.setValue(0)
+    assert s.text() == "none"
+    d = q.QDoubleSpinBox()
+    d.setDecimals(2)
+    d.setValue(1.5)
+    assert d.textFromValue(1.5) == "1.50" and d.decimals() == 2
+    sl = q.QSlider(q.Qt.Horizontal)
+    sl.setRange(0, 100)
+    sl.setPageStep(25)
+    acts = spy(sl.actionTriggered)
+    sl.triggerAction(sl.SliderPageStepAdd)
+    sl.triggerAction(sl.SliderToMaximum)
+    assert sl.value() == 100 and acts == [(3,), (6,)]
+    p = q.QProgressBar()
+    p.setRange(0, 200)
+    p.setValue(50)
+    assert p.text() == "25%"
+    p.setFormat("%v of %m")
+    assert p.text() == "50 of 200"
+    p.resetFormat()
+    assert p.format() == "%p%"
+
+
+def test_combo_tabs_label_button():
+    c = q.QComboBox()
+    c.addItem("a", 1)
+    c.addItem("b", 2)
+    assert c.findData(2) == 1
+    c.setItemText(0, "A")
+    assert c.itemText(0) == "A"
+    c.setMaxCount(1)
+    assert c.count() == 1
+    c.addItem("c")
+    assert c.count() == 1, "maxCount stops adding"
+    m = q.QStringListModel(["x", "y", "z"])
+    c.setMaxCount(10)
+    c.setModel(m)
+    assert c.count() == 3 and c.itemText(2) == "z" and c.model() is m
+    t = q.QTabWidget()
+    p0, p1 = q.QLabel("0"), q.QLabel("1")
+    t.addTab(p0, "zero")
+    t.insertTab(0, p1, "one")
+    assert t.indexOf(p0) == 1 and t.tabText(0) == "one"
+    t.setCurrentWidget(p0)
+    assert t.currentWidget() is p0
+    t.removeTab(0)
+    assert t.count() == 1 and t.indexOf(p1) == -1
+    lab = q.QLabel()
+    lab.setNum(2.5)
+    assert lab.text() == "2.5"
+    lab.setNum(7)
+    assert lab.text() == "7"
+    b = q.QPushButton("b")
+    toggled = spy(b.toggled)
+    b.setChecked(True)
+    assert not b.isChecked(), "not checkable yet"
+    b.setCheckable(True)
+    b.toggle()
+    assert b.isChecked() and toggled == [(True,)]
+    b.setFlat(True)
+    b.setDefault(True)
+    assert b.isFlat() and b.isDefault()
+    menu = q.QMenu("m")
+    b.setMenu(menu)
+    assert b.menu() is menu
+    render(b)
+
+
+def test_window_hints_timers_palette():
+    from bui.qtgui import QFontMetrics, QPalette
+    w = q.QWidget()
+    w.setWindowOpacity(2)
+    w.setMinimumSize(100, 50)
+    w.setMaximumWidth(400)
+    w.setWindowFlags(q.Qt.WindowStaysOnTopHint)
+    assert w.windowOpacity() == 1.0 and w.minimumWidth() == 100 and w.maximumSize().width() == 400
+    assert w.windowFlags() & q.Qt.WindowStaysOnTopHint
+    w.setWindowState(q.Qt.WindowMaximized)
+    assert w.isMaximized(), "kept until the window exists"
+    w.setWindowTitle("doc[*]")
+    w.setWindowModified(True)
+    assert w._shown_title() == "doc*" and w.windowTitle() == "doc[*]"
+    pal = QPalette()
+    pal.setColor(QPalette.Window, q.QColor(255, 0, 0))
+    w.setPalette(pal)
+    assert w.palette().color(QPalette.Window).red() == 255
+    fm = QFontMetrics(w.font())
+    assert fm.horizontalAdvance("wide text") > fm.horizontalAdvance("w") > 0
+    assert fm.elidedText("a long piece of text", q.Qt.ElideRight, fm.horizontalAdvance("a long")).endswith("…")
+    fired = []
+
+    class T(q.QWidget):
+        def timerEvent(self, e):  # noqa: N802
+            fired.append(e.timerId())
+            self.killTimer(e.timerId())
+
+    t = T()
+    tid = t.startTimer(0)
+    assert tid == 1
+    queue, q._timers.queue = q._timers.queue, []  # headless: no window clock, run the queued tick
+    for _, fn in queue:
+        fn()
+    assert fired == [1] and not q._timers.queue, "fired once, then killed"
+
+
+def test_context_menu_resize_keyrelease():
+    from bui.components.core import EV_CONFIGURE
+    got = []
+
+    class W(q.QWidget):
+        def contextMenuEvent(self, e):  # noqa: N802
+            got.append(("menu", e.x(), e.y()))
+
+        def resizeEvent(self, e):  # noqa: N802
+            got.append(("size", e.size().width(), e.oldSize().width()))
+
+        def keyReleaseEvent(self, e):  # noqa: N802
+            got.append(("key", e.text()))
+
+    w = W()
+    w._on_event(EV_PRESS, "0 3", 5, 6)
+    w._on_event(EV_CONFIGURE, "", 120, 80)
+    w._on_event(q.EV_KEYRELEASE, "a\ta", 0, 0)
+    assert got == [("menu", 5, 6), ("size", 120, -1), ("key", "a")]
+    v = q.QWidget()
+    v.setContextMenuPolicy(q.Qt.CustomContextMenu)
+    asked = spy(v.customContextMenuRequested)
+    v._on_event(EV_PRESS, "0 3", 1, 2)
+    assert len(asked) == 1 and asked[0][0].x() == 1
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

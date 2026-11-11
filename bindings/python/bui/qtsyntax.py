@@ -30,9 +30,11 @@ from typing import Callable, List, Optional
 import buipy
 
 from bui import _realtk, filebrowser, host
+from bui._qtinputs import (ComboBoxMore, DoubleSpinBoxMore, LabelMore, LineEditMore, ProgressBarMore,
+                           PushButtonMore, SliderMore, SpinBoxMore, TabWidgetMore)
 from bui._qtwidget import QWidgetMore
-from bui.components.core import (EV_ACTIVATE, EV_CHANGE, EV_CLICK, EV_DOUBLE, EV_ENTER,  # noqa: F401
-                                 EV_KEY, EV_LEAVE, EV_MOTION, EV_PRESS, EV_RELEASE,
+from bui.components.core import (EV_ACTIVATE, EV_CHANGE, EV_CLICK, EV_CONFIGURE, EV_DOUBLE,  # noqa: F401
+                                 EV_ENTER, EV_KEY, EV_LEAVE, EV_MOTION, EV_PRESS, EV_RELEASE,
                                  EV_RENAME, EV_SUBMIT, EV_TOGGLE, EV_WHEEL)
 from bui.components.menus import MenuItem
 from bui.tksyntax import PhotoImage, color as _tk_color
@@ -75,6 +77,11 @@ class Qt:
     LeftToolBarArea, RightToolBarArea, TopToolBarArea, BottomToolBarArea = 1, 2, 4, 8
     ToolButtonIconOnly, ToolButtonTextOnly, ToolButtonTextBesideIcon, ToolButtonTextUnderIcon = 0, 1, 2, 3
     ToolButtonFollowStyle = 4
+    WindowNoState, WindowMinimized, WindowMaximized, WindowFullScreen, WindowActive = 0, 1, 2, 4, 8
+    Widget, Window, Dialog, Tool, ToolTip = 0, 0x1, 0x3, 0xB, 0x13
+    FramelessWindowHint, WindowStaysOnTopHint, WindowStaysOnBottomHint = 0x800, 0x40000, 0x4000000
+    ElideLeft, ElideRight, ElideMiddle, ElideNone = 0, 1, 2, 3
+    NoArrow, UpArrow, DownArrow, LeftArrow, RightArrow = 0, 1, 2, 3, 4
     white, black, red, green, blue, gray = "#ffffff", "#000000", "#ff0000", "#00ff00", \
         "#0000ff", "#808080"
 
@@ -415,8 +422,14 @@ class QMouseEvent(QEvent):
     def button(self):
         return self._button
 
+    def buttons(self):
+        return self._button
+
     def modifiers(self):
         return self._mods
+
+    def localPos(self):  # noqa: N802
+        return self.pos()
 
 
 class QKeyEvent(QEvent):
@@ -462,6 +475,17 @@ class QApplication:
     @staticmethod
     def instance():
         return QApplication._instance
+
+    @staticmethod
+    def primaryScreen():  # noqa: N802
+        from bui.qtgui import primary_screen
+        return primary_screen()
+
+    @staticmethod
+    def screens():
+        from bui.qtgui import primary_screen
+        screen = primary_screen()
+        return [screen] if screen is not None else []
 
     @staticmethod
     def clipboard():
@@ -696,8 +720,10 @@ def _kids(node):
     return buipy.KitNode.children.__get__(node)
 
 _EVENT_METHODS = ("mousePressEvent", "mouseReleaseEvent", "mouseMoveEvent",
-                  "mouseDoubleClickEvent", "keyPressEvent", "wheelEvent", "enterEvent",
-                  "leaveEvent")
+                  "mouseDoubleClickEvent", "keyPressEvent", "keyReleaseEvent", "wheelEvent", "enterEvent",
+                  "leaveEvent", "resizeEvent", "contextMenuEvent")
+EV_KEYRELEASE = 20
+_BUTTONS = {1: 1, 2: 4, 3: 2}  # the kit's button 1 / 2 / 3 -> Qt.LeftButton / MiddleButton / RightButton
 
 
 class QWidget(QWidgetMore, buipy.KitNode):
@@ -824,11 +850,6 @@ class QWidget(QWidgetMore, buipy.KitNode):
     def setMinimumHeight(self, h):  # noqa: N802
         self.geom(int(self.geom_get("manager")), reqheight=int(h))
 
-    def setMinimumSize(self, w, h=None):  # noqa: N802
-        pass
-
-    setMaximumSize = setMaximumWidth = setMaximumHeight = setMinimumSize
-
     def width(self):
         if self._window is not None:
             return self._window.size[0]
@@ -925,6 +946,7 @@ class QWidget(QWidgetMore, buipy.KitNode):
                     pass
 
     def setFont(self, font):  # noqa: N802
+        self._font = font
         if isinstance(font, QFont) and font.bold():
             try:
                 self.set("bold", True)
@@ -940,11 +962,8 @@ class QWidget(QWidgetMore, buipy.KitNode):
     def setAttribute(self, *a):  # noqa: N802
         pass
 
-    setWindowIcon = setWindowFlags = setContentsMargins = setAttribute
+    setWindowIcon = setContentsMargins = setAttribute
     installEventFilter = setMouseTracking = setAutoFillBackground = setAttribute
-
-    def setFocus(self, *a):  # noqa: N802
-        pass
 
     def setCursor(self, *a):  # noqa: N802
         pass
@@ -953,7 +972,7 @@ class QWidget(QWidgetMore, buipy.KitNode):
     def setWindowTitle(self, title):  # noqa: N802
         self._title = str(title)
         if self._window is not None:
-            self._window.title(self._title)
+            self._window.title(self._shown_title())  # "[*]" shows as "*" while modified
 
     def windowTitle(self):  # noqa: N802
         return self._title
@@ -983,6 +1002,8 @@ class QWidget(QWidgetMore, buipy.KitNode):
         self._window = host.Window(self._ctx, self._title or "BUI", size)
         self._window.on_close = self._close_requested
         self._window.show()
+        self._window.title(self._shown_title())
+        self._apply_window_hints()
         _timers.flush()
         _schedule_paint()
 
@@ -1022,6 +1043,8 @@ class QWidget(QWidgetMore, buipy.KitNode):
         pass
 
     def update(self, *args):
+        if not self.updatesEnabled():
+            return
         if self._custom_paint:
             self._repaint()
         else:
@@ -1066,11 +1089,54 @@ class QWidget(QWidgetMore, buipy.KitNode):
     def leaveEvent(self, e):  # noqa: N802
         pass
 
+    def keyReleaseEvent(self, e):  # noqa: N802
+        pass
+
+    def resizeEvent(self, e):  # noqa: N802
+        pass
+
+    def contextMenuEvent(self, e):  # noqa: N802
+        e.ignore()
+
+    customContextMenuRequested = Signal(object)
+
+    def _context_menu(self, mouse):
+        """A right click, as Qt's contextMenuPolicy says: the handler, the widget's actions, or a signal."""
+        policy = self.contextMenuPolicy()
+        pos = mouse.pos()
+        if policy == Qt.DefaultContextMenu:
+            from bui.qtgui import QContextMenuEvent
+            self.contextMenuEvent(QContextMenuEvent(QContextMenuEvent.Mouse, pos))
+        elif policy == Qt.ActionsContextMenu and self.actions():
+            menu = QMenu("", self)
+            for a in self.actions():
+                menu.addAction(a)
+            x, y = self.absolutePos()
+            menu.popup(QPoint(x + pos.x(), y + pos.y()))
+        elif policy == Qt.CustomContextMenu:
+            self.customContextMenuRequested.emit(pos)
+
+    def _mouse(self, ref, a, b):
+        mods, _, button = (ref or "0 1").partition(" ")
+        return QMouseEvent(a, b, _BUTTONS.get(int(button or 1), 1), _mods_qt(int(mods or 0)))
+
     def _on_event(self, kind, ref, a, b):
         if kind == EV_PRESS:
-            self.mousePressEvent(QMouseEvent(a, b))
+            e = self._mouse(ref, a, b)
+            self.mousePressEvent(e)
+            if e.button() == Qt.RightButton:
+                self._context_menu(e)
         elif kind == EV_RELEASE:
-            self.mouseReleaseEvent(QMouseEvent(a, b))
+            self.mouseReleaseEvent(self._mouse(ref, a, b))
+        elif kind == EV_CONFIGURE:
+            from bui.qtgui import QResizeEvent
+            old = getattr(self, "_last_size", QSize(-1, -1))
+            self._last_size = QSize(int(a), int(b))
+            self.resizeEvent(QResizeEvent(self._last_size, old))
+        elif kind == EV_KEYRELEASE:
+            text, _, keysym = (ref or "").partition("\t")
+            key = _KEYSYM_TO_QT.get(keysym, ord(keysym.upper()) if len(keysym) == 1 else 0)
+            self.keyReleaseEvent(QKeyEvent(key, text, _mods_qt(int(a))))
         elif kind == EV_MOTION:
             self.mouseMoveEvent(QMouseEvent(a, b))
         elif kind == EV_DOUBLE:
@@ -1495,7 +1561,7 @@ class QStackedLayout(QLayout):
 # Widgets
 
 
-class QLabel(QWidget):
+class QLabel(LabelMore, QWidget):
     KIND = "label"
 
     def __init__(self, text="", parent=None, **kw):
@@ -1515,6 +1581,7 @@ class QLabel(QWidget):
                  ("center" if a & Qt.AlignHCenter else "left"))
 
     def setPixmap(self, pm):  # noqa: N802
+        self._pixmap = pm
         self.set_image(pm.width(), pm.height(), pm._img.rgba())
 
     def setWordWrap(self, b):  # noqa: N802
@@ -1559,7 +1626,7 @@ class QAbstractButton(QWidget):
         return s.key() if s is not None else QKeySequence()
 
 
-class QPushButton(QAbstractButton):
+class QPushButton(PushButtonMore, QAbstractButton):
     KIND = "button"
 
     def __init__(self, text="", parent=None, **kw):
@@ -1570,12 +1637,12 @@ class QPushButton(QAbstractButton):
 
     def _event(self, kind, ref, a, b):
         if kind == EV_CLICK:
-            self.clicked.emit(False)
-
-    def setDefault(self, b):  # noqa: N802
-        pass
-
-    setAutoDefault = setFlat = setDefault
+            if self.menu() is not None:
+                self.showMenu()
+                return
+            if self.isCheckable():
+                self.toggle()
+            self.clicked.emit(self.isChecked())
 
 
 QToolButton = QPushButton
@@ -1690,8 +1757,9 @@ class QButtonGroup:
         return None
 
 
-class QLineEdit(QWidget):
+class QLineEdit(LineEditMore, QWidget):
     KIND = "text"
+    inputRejected = Signal()
     textChanged = Signal(str)
     textEdited = Signal(str)
     returnPressed = Signal()
@@ -1709,13 +1777,12 @@ class QLineEdit(QWidget):
         return self.get_str("value")
 
     def setText(self, t):  # noqa: N802
-        self.set("set_value", str(t))
+        self.__dict__["_good"] = str(t)[:self.maxLength()]
+        self.__dict__["_modified_text"] = False  # Qt: setText resets the modified flag
+        self.set("set_value", self.__dict__["_good"])
 
     def clear(self):
         self.setText("")
-
-    def setPlaceholderText(self, t):  # noqa: N802
-        self.set("placeholder", str(t))
 
     def setReadOnly(self, b):  # noqa: N802
         self.set("enabled", not b)
@@ -1723,13 +1790,15 @@ class QLineEdit(QWidget):
     def setEchoMode(self, m):  # noqa: N802
         pass
 
-    setMaxLength = setValidator = setClearButtonEnabled = setAlignment = setEchoMode
+    setClearButtonEnabled = setAlignment = setEchoMode
 
     def keyPressEvent(self, e):  # noqa: N802
         pass
 
     def _on_event(self, kind, ref, a, b):
         if kind == EV_CHANGE:
+            if not self._accept_edit():  # cut to maxLength, or refused by the validator
+                return
             self.textChanged.emit(self.text())
             self.textEdited.emit(self.text())
         elif kind == EV_SUBMIT:
@@ -1786,7 +1855,8 @@ class QTextEdit(QWidget):
 QPlainTextEdit = QTextEdit
 
 
-class QAbstractSlider(QWidget):
+class QAbstractSlider(SliderMore, QWidget):
+    actionTriggered = Signal(int)
     valueChanged = Signal(int)
     sliderMoved = Signal(int)
     sliderReleased = Signal()
@@ -1825,10 +1895,10 @@ class QAbstractSlider(QWidget):
     def setSingleStep(self, s):  # noqa: N802
         self.set("step", float(s))
 
-    def setPageStep(self, s):  # noqa: N802
+    def setTickPosition(self, *a):  # noqa: N802 - accepted; Blender's sliders draw no ticks
         pass
 
-    setTickPosition = setTickInterval = setTracking = setPageStep
+    setTickInterval = setTracking = setTickPosition
 
     def _event(self, kind, ref, a, b):
         if kind == EV_CHANGE:
@@ -1852,30 +1922,22 @@ class QDial(QSlider):
     pass
 
 
-class QSpinBox(QAbstractSlider):
+class QSpinBox(SpinBoxMore, QAbstractSlider):
     KIND = "number"
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._prefix = ""
 
-    def setSuffix(self, s):  # noqa: N802
-        self.set("suffix", str(s))
+    textChanged = Signal(str)
 
-    def setPrefix(self, p):  # noqa: N802
-        self.set("label", str(p).rstrip(": "))
-
-    def stepUp(self):  # noqa: N802
-        self.setValue(self.value() + int(self.get("step")))
-
-    def stepDown(self):  # noqa: N802
-        self.setValue(self.value() - int(self.get("step")))
-
-    def text(self):
-        return str(self.value())
+    def _event(self, kind, ref, a, b):
+        super()._event(kind, ref, a, b)
+        if kind == EV_CHANGE:
+            self.textChanged.emit(self.text())
 
 
-class QDoubleSpinBox(QSpinBox):
+class QDoubleSpinBox(DoubleSpinBoxMore, QSpinBox):
     valueChanged = Signal(float)
 
     def _setup(self):
@@ -1887,15 +1949,13 @@ class QDoubleSpinBox(QSpinBox):
     def value(self):
         return self.get("value")
 
-    def setDecimals(self, d):  # noqa: N802
-        self.set("precision", int(d))
-
     def _event(self, kind, ref, a, b):
         if kind == EV_CHANGE:
             self.valueChanged.emit(self.value())
+            self.textChanged.emit(self.text())
 
 
-class QProgressBar(QWidget):
+class QProgressBar(ProgressBarMore, QWidget):
     KIND = "progress"
     valueChanged = Signal(int)
 
@@ -1952,11 +2012,12 @@ class QProgressBar(QWidget):
         self.set("text", text if self._text_visible else "")
 
 
-class QComboBox(QWidget):
+class QComboBox(ComboBoxMore, QWidget):
     KIND = "dropdown"
     currentIndexChanged = Signal(int)
     currentTextChanged = Signal(str)
     activated = Signal(int)
+    textActivated = Signal(str)
 
     def _setup(self):
         self._items = []
@@ -1965,6 +2026,8 @@ class QComboBox(QWidget):
     def addItem(self, text, data=None):  # noqa: N802
         if isinstance(text, QIcon):
             text, data = data, None
+        if self.count() >= self.maxCount():
+            return
         self._items.append(str(text))
         self._data.append(data)
         self.set("items", self._items)
@@ -1974,6 +2037,8 @@ class QComboBox(QWidget):
             self.addItem(t)
 
     def insertItem(self, index, text, data=None):  # noqa: N802
+        if self.count() >= self.maxCount():
+            return
         self._items.insert(index, str(text))
         self._data.insert(index, data)
         self.set("items", self._items)
@@ -2026,6 +2091,7 @@ class QComboBox(QWidget):
             self.currentIndexChanged.emit(i)
             self.currentTextChanged.emit(self.currentText())
             self.activated.emit(i)
+            self.textActivated.emit(self.currentText())
 
 
 class QListWidgetItem:
@@ -2375,9 +2441,10 @@ class QTableWidget(QWidget):
             self.cellDoubleClicked.emit(self.currentRow(), 0)
 
 
-class QTabWidget(QWidget):
+class QTabWidget(TabWidgetMore, QWidget):
     KIND = "tabs"
     currentChanged = Signal(int)
+    tabBarClicked = Signal(int)
 
     def _setup(self):
         self._pages, self._titles = [], []
@@ -2413,6 +2480,7 @@ class QTabWidget(QWidget):
 
     def _event(self, kind, ref, a, b):
         if kind == EV_CHANGE:
+            self.tabBarClicked.emit(int(a))
             self.currentChanged.emit(int(a))
 
 
@@ -2924,3 +2992,6 @@ from bui.qtviews import (QAbstractItemModel, QAbstractListModel, QAbstractTableM
                          QStandardItem, QStandardItemModel, QStringListModel, QTableView, QTreeView)
 from bui.qtdialogs import QInputDialog, QMessageBox  # noqa: E402,F401
 from bui.qtcore import QClipboard, QKeySequence, QSettings, QShortcut  # noqa: E402,F401
+from bui.qtgui import (QContextMenuEvent, QCursor, QDoubleValidator, QFontMetrics,  # noqa: E402,F401
+                       QFontMetricsF, QIntValidator, QPalette, QRegularExpression,
+                       QRegularExpressionValidator, QResizeEvent, QScreen, QTimerEvent, QValidator)

@@ -92,6 +92,13 @@ class QWidgetMore:
         found = self.findChildren(type_, name)
         return found[0] if found else None
 
+    def setContextMenuPolicy(self, policy):  # noqa: N802
+        """Right clicks then go to contextMenuEvent (the default), show the widget's actions, or emit
+        customContextMenuRequested; the kit reports them once a policy needs them."""
+        self.__dict__.setdefault("_qp", {})["contextMenuPolicy"] = int(policy)
+        if int(policy) in (2, 3):
+            self.set("events", True)
+
     def deleteLater(self):  # noqa: N802
         parent = self.parent
         if parent is not None:
@@ -235,3 +242,224 @@ class QWidgetMore:
 
     def hideEvent(self, event):  # noqa: N802
         pass
+
+    # -- the window, through the host's window-manager requests ------------------------------------------
+    _STATE_TO_WM = {0: 0, 1: 1, 2: 3}  # Qt.WindowNoState / WindowMinimized / WindowMaximized -> host state
+
+    def _host(self):
+        top = self.window()
+        return getattr(top, "_window", None)
+
+    def _wm(self, key, a=0.0, b=0.0):
+        host = self._host()
+        if host is not None:
+            host.wm(key, a, b)
+
+    def _apply_window_hints(self):
+        """Called when the window opens: what was set before it existed."""
+        d = self.__dict__
+        if "_min_size" in d:
+            self._wm("minsize", *d["_min_size"])
+        if "_max_size" in d:
+            self._wm("maxsize", *d["_max_size"])
+        if "_opacity" in d:
+            self._wm("alpha", d["_opacity"])
+        if d.get("_flags", 0) & 0x00040000:  # Qt.WindowStaysOnTopHint
+            self._wm("topmost", 1)
+        if d.get("_state", 0):
+            self.setWindowState(d["_state"])
+
+    def windowState(self):  # noqa: N802
+        host = self._host()
+        if host is not None:
+            got = host.wm_get("state")
+            return {1: 1, 3: 2}.get(int(got[0]), 0) if got else 0
+        return self.__dict__.get("_state", 0)
+
+    def setWindowState(self, state):  # noqa: N802
+        self.__dict__["_state"] = int(state) & 3
+        self._wm("state", self._STATE_TO_WM.get(int(state) & 3, 0))
+
+    def isMinimized(self):  # noqa: N802
+        return self.windowState() == 1
+
+    def isMaximized(self):  # noqa: N802
+        return self.windowState() == 2
+
+    def showMinimized(self):  # noqa: N802
+        self.show()
+        self.setWindowState(1)
+
+    def showMaximized(self):  # noqa: N802
+        self.show()
+        self.setWindowState(2)
+
+    def showNormal(self):  # noqa: N802
+        self.show()
+        self.setWindowState(0)
+
+    def activateWindow(self):  # noqa: N802
+        self._wm("focus")
+
+    def raise_(self):
+        """In front: the window above the others, or this widget above its siblings."""
+        if self.isWindow():
+            self._wm("lift")
+        elif self.parent is not None:
+            parent = self.parent
+            parent.remove(self)
+            parent.add(self)
+
+    def lower(self):
+        if self.isWindow():
+            self._wm("lower")
+        elif self.parent is not None:
+            parent = self.parent
+            parent.remove(self)
+            parent.add(self, 0)
+
+    def stackUnder(self, w):  # noqa: N802
+        parent = self.parent
+        if parent is not None and w.parent is parent:
+            parent.remove(self)
+            kids = list(parent.children())
+            parent.add(self, kids.index(w) if w in kids else 0)
+
+    def windowOpacity(self):  # noqa: N802
+        return self.__dict__.get("_opacity", 1.0)
+
+    def setWindowOpacity(self, opacity):  # noqa: N802
+        self.__dict__["_opacity"] = max(0.0, min(1.0, float(opacity)))
+        self._wm("alpha", self.__dict__["_opacity"])
+
+    def windowFlags(self):  # noqa: N802
+        return self.__dict__.get("_flags", 0)
+
+    def setWindowFlags(self, flags):  # noqa: N802
+        """Kept, and Qt.WindowStaysOnTopHint applied (the host's topmost); other flags have no effect."""
+        self.__dict__["_flags"] = int(flags)
+        self._wm("topmost", 1 if int(flags) & 0x00040000 else 0)
+
+    # -- sizes (a window's limits go to the host; a child's minimum is its requested size) -----------------
+    def minimumSize(self):  # noqa: N802
+        from bui.qtsyntax import QSize
+        return QSize(*self.__dict__.get("_min_size", (0, 0)))
+
+    def minimumWidth(self):  # noqa: N802
+        return self.minimumSize().width()
+
+    def minimumHeight(self):  # noqa: N802
+        return self.minimumSize().height()
+
+    def maximumSize(self):  # noqa: N802
+        from bui.qtsyntax import QSize
+        return QSize(*self.__dict__.get("_max_size", (16777215, 16777215)))
+
+    def maximumWidth(self):  # noqa: N802
+        return self.maximumSize().width()
+
+    def maximumHeight(self):  # noqa: N802
+        return self.maximumSize().height()
+
+    @staticmethod
+    def _wh(w, h):
+        return (w.width(), w.height()) if h is None else (int(w), int(h))
+
+    def setMinimumSize(self, w, h=None):  # noqa: N802
+        w, h = self._wh(w, h)
+        self.__dict__["_min_size"] = (w, h)
+        if self.isWindow():
+            self._wm("minsize", w, h)
+        else:
+            self.geom(int(self.geom_get("manager")), reqwidth=w, reqheight=h)
+
+    def setMaximumSize(self, w, h=None):  # noqa: N802
+        """A window's largest size (the host keeps it); child widgets have no maximum on the kit."""
+        w, h = self._wh(w, h)
+        self.__dict__["_max_size"] = (w, h)
+        if self.isWindow():
+            self._wm("maxsize", w, h)
+
+    def setMaximumWidth(self, w):  # noqa: N802
+        self.setMaximumSize(w, self.maximumHeight())
+
+    def setMaximumHeight(self, h):  # noqa: N802
+        self.setMaximumSize(self.maximumWidth(), h)
+
+    def sizePolicy(self):  # noqa: N802
+        from bui.qtsyntax import QSizePolicy
+        h, v = self._policy or (None, None)
+        return QSizePolicy(QSizePolicy.Preferred if h is None else h, QSizePolicy.Preferred if v is None else v)
+
+    # -- focus ------------------------------------------------------------------------------------------
+    def setFocus(self, *reason):  # noqa: N802
+        """Give this widget the keyboard focus of its window (once the window is open)."""
+        ctx = self.window()._ctx
+        if ctx is not None:
+            ctx.focus_node(self)
+
+    # -- timers (QObject.startTimer) ------------------------------------------------------------------------
+    def startTimer(self, interval, *a):  # noqa: N802
+        from bui.qtsyntax import _timers
+        timers = self.__dict__.setdefault("_qtimers", {})
+        timer_id = max(timers, default=0) + 1
+        timers[timer_id] = int(interval)
+
+        def fire():
+            if timer_id in self.__dict__.get("_qtimers", {}):
+                from bui.qtgui import QTimerEvent
+                self.timerEvent(QTimerEvent(timer_id))
+                if timer_id in self.__dict__.get("_qtimers", {}):
+                    _timers.after(timers[timer_id], fire)
+        _timers.after(int(interval), fire)
+        return timer_id
+
+    def killTimer(self, timer_id):  # noqa: N802
+        self.__dict__.get("_qtimers", {}).pop(timer_id, None)
+
+    def timerEvent(self, event):  # noqa: N802
+        pass
+
+    # -- painting and the title ---------------------------------------------------------------------------
+    def updatesEnabled(self):  # noqa: N802
+        return self.__dict__.get("_updates", True)
+
+    def setUpdatesEnabled(self, enabled):  # noqa: N802
+        self.__dict__["_updates"] = bool(enabled)
+        if enabled:
+            self.update()
+
+    def isWindowModified(self):  # noqa: N802
+        return self.__dict__.get("_modified", False)
+
+    def setWindowModified(self, modified):  # noqa: N802
+        """The "[*]" in the window title shows as "*" while modified, as in Qt."""
+        self.__dict__["_modified"] = bool(modified)
+        self.setWindowTitle(self.windowTitle())
+
+    def _shown_title(self):
+        return self.windowTitle().replace("[*]", "*" if self.isWindowModified() else "")
+
+    # -- fonts and colors ---------------------------------------------------------------------------------
+    def font(self):
+        from bui.qtsyntax import QFont
+        return self.__dict__.get("_font") or QFont()
+
+    def fontMetrics(self):  # noqa: N802
+        from bui.qtgui import QFontMetrics
+        return QFontMetrics(self.font())
+
+    def palette(self):
+        from bui.qtgui import QPalette
+        return QPalette(self.__dict__.get("_palette"))
+
+    def setPalette(self, palette):  # noqa: N802
+        """Window (or Base / Button) is the widget's background, WindowText (or Text) its text color."""
+        from bui.qtgui import QPalette
+        self.__dict__["_palette"] = palette
+        colors = palette._colors
+        bg = next((colors[r] for r in (QPalette.Window, QPalette.Base, QPalette.Button) if r in colors), None)
+        fg = next((colors[r] for r in (QPalette.WindowText, QPalette.Text, QPalette.ButtonText) if r in colors), None)
+        for prop, c in (("bg", bg), ("text_color", fg)):
+            if c is not None:
+                self.set(prop, (c.red() / 255.0, c.green() / 255.0, c.blue() / 255.0, c.alpha() / 255.0))
