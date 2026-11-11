@@ -4,10 +4,9 @@
 layouts, `clicked.connect(...)`) that runs on BUI's C kit, with Blender's
 look. Neither Qt nor PySide is needed.
 
-> **Status: partial.** The everyday subset below works and is tested.
-> Measured against Qt's widget headers, about 24% of the method names
-> on the main widget classes exist (about 220 of 920). See [Coverage](#coverage) for what's
-> missing and the plan.
+> **Status: partial.** Measured against Qt's own headers by
+> `tools/qt_coverage.py`: 482 of 1,555 public methods, signals, slots and event handlers on 36 core widget classes (31%), and 573 of 3,205 across all 142 exported widget and GUI classes (18%).
+> See [Coverage](#coverage) for what's missing.
 
 ![Qt syntax on BUI](images/qt.png)
 
@@ -122,24 +121,71 @@ class Gauge(QWidget):
         self.update()                  # repaints the display list
 ```
 
+## Containers, models and dialogs
+
+```python
+from bui.qtsyntax import (QMainWindow, QDockWidget, QSplitter, QToolBox, QTreeView,
+                          QStandardItemModel, QStandardItem, QMessageBox, QSettings, Qt)
+
+win = QMainWindow()
+bar = win.addToolBar("Main")
+bar.addAction("Save", save)                      # a row of tool buttons
+model = QStandardItemModel()
+model.setHorizontalHeaderLabels(["Name", "Type"])
+model.appendRow([QStandardItem("Cube"), QStandardItem("Mesh")])
+tree = QTreeView()
+tree.setModel(model)                             # redraws when the model changes
+dock = QDockWidget("Outliner")
+dock.setWidget(tree)
+win.addDockWidget(Qt.LeftDockWidgetArea, dock)   # a Blender panel left of the central widget
+split = QSplitter(Qt.Vertical)                   # Blender's region edges, dragged
+win.setCentralWidget(split)
+if QMessageBox.question(win, "Quit", "Save changes?") == QMessageBox.Yes:
+    QSettings("Studio", "App").setValue("geometry/width", win.width())
+```
+
+- **Containers:** `QStackedWidget`, `QToolBox` (Blender panels: the Qt API keeps one open,
+  while a click on a header opens or closes that panel on its own, as in Blender), `QSplitter`
+  (region edges you drag), `QToolBar`, `QDockWidget`, `QTabBar`, and `QMainWindow.addToolBar`,
+  `addDockWidget`, `setStatusBar`, `takeCentralWidget`.
+- **Model/view:** `QStandardItemModel`, `QStringListModel`, the abstract models to subclass
+  (`QAbstractItemModel`, `QAbstractListModel`, `QAbstractTableModel`), `QModelIndex`,
+  `QItemSelectionModel`, and `QListView`, `QTreeView`, `QTableView`, drawn in Blender's tree
+  list. One row is selected at a time; views don't edit cells.
+- **Dialogs:** `QMessageBox` (Blender's info, question, warning and cancel icons; the static
+  helpers return the button clicked) and `QInputDialog` (`getText`, `getInt`, `getDouble`,
+  `getItem`).
+- **Core:** `QSettings` (an INI file per application with Qt's groups and arrays; on Windows Qt's
+  native format is the registry, here it's `%APPDATA%\<org>\<app>.ini`), `QKeySequence`,
+  `QShortcut` (the kit's key bindings; buttons' `setShortcut` uses it), `QClipboard`.
+- **QObject / QWidget:** `blockSignals`, dynamic properties (`setProperty` / `property`),
+  `findChild` / `findChildren`, `mapTo` / `mapFrom` / `childAt` / `childrenRect`, `adjustSize`,
+  `hasFocus` / `clearFocus`, `showEvent` / `hideEvent`, widget actions, and the descriptive
+  properties (`statusTip`, `whatsThis`, accessible names, focus and context-menu policies).
+
 ## Coverage
 
-There is no Qt installed in the test environment, so coverage was counted
-from Qt's own widget headers (`reference/qtbase`): **about 220 of 920
-public method names** across 25 core widget classes (~24%).
+`py tools/qt_coverage.py` counts it from Qt's own headers in `reference/qtbase` (there's no Qt in
+the test environment): every exported class's public methods, slots, signals and overridable
+`*Event` handlers, and whether the `bui.qtsyntax` class of the same name has each one. It writes
+the per-class table to [qt-coverage.md](qt-coverage.md). Today: 482 of 1,555 public methods, signals, slots and event handlers on 36 core widget classes (31%), and 573 of 3,205 across all 142 exported widget and GUI classes (18%). (The earlier
+"220 of 920" figure came from a looser count over 25 classes.)
 
-**Missing:**
+Missing names raise `AttributeError`. A few setters are accepted and ignored: window flags and icons, frame shapes, word wrap, echo mode, validators, scroll-bar policies, maximum sizes and the like. The
+accepted-but-ignored setters today: `setWindowFlags`, `setWindowIcon`, `setAttribute`,
+`setContentsMargins`, `setCursor`, `setFocus`, `setMouseTracking`, `setAutoFillBackground`,
+`installEventFilter`, `setMaximumSize` / `Width` / `Height`, `setMinimumSize` (on QWidget);
+`setFrameShape`, `setFrameShadow`, `setLineWidth` (QFrame); `setWordWrap`, `setTextFormat`,
+`setOpenExternalLinks` (QLabel); `setEchoMode`, `setMaxLength`, `setValidator`, `setAlignment`,
+`setClearButtonEnabled` (QLineEdit); `setEditable` (QComboBox); `setPageStep`, `setTickPosition`,
+`setTickInterval`, `setTracking`, `setOrientation` (sliders); `setDefault`, `setAutoDefault`,
+`setFlat` (QPushButton); scroll-bar policies and `setWidgetResizable` (QScrollArea);
+`setLineWrapMode`, `setWordWrapMode`, `setPlaceholderText` (QTextEdit); `setStyle` and
+`setStyleSheet` (QApplication); `setRenderHint(s)` (QPainter); item colors, flags and data on
+`QListWidgetItem`, `QTreeWidgetItem` and `QTableWidgetItem`; `setIcon`, `setToolTip`,
+`setStatusTip` (QAction).
 
-- Model/view: `QAbstractItemModel`, `QListView`, `QTreeView`,
-  `QTableView`, delegates
-- `QSplitter`, `QDockWidget`, `QToolBar`, `QStackedWidget` (as a real
-  class), `QToolBox`, `QDateEdit` and friends, `QCalendarWidget`
-- Most of `QWidget`'s surface: focus policy details, `setWindowFlags`,
-  geometry helpers, `grab`
-- Stylesheets beyond `color`, `background` and `font-weight`; `QPalette`
-- `QSettings`, `QThread`, `QClipboard`, drag-and-drop, `QShortcut`
-- `QMessageBox` and `QInputDialog` as drawn dialogs (the tkinter layer
-  already has Blender-styled dialogs that can be reused)
+**Missing:** `QDateEdit` and friends, `QCalendarWidget`, `QThread`, drag and drop, delegates and editing inside views, multi-selection, floating docks, `QGraphicsScene`, OpenGL widgets, rich text, stylesheet selectors and `QPalette`.
 
 **Plan.** Reach parity with the tkinter layer:
 

@@ -6,13 +6,13 @@ order: 20
 status: preview
 languages: ["python"]
 badges: ["Partial"]
-sources: ["docs/qt.md", "SYNTAX_COVERAGE.md", "examples/qt_syntax_demo.py", "bindings/python/bui/qtsyntax.py", "bindings/python/bui/host.py", "docs/getting-started.md"]
+sources: ["docs/qt.md", "SYNTAX_COVERAGE.md", "examples/qt_syntax_demo.py", "bindings/python/bui/qtsyntax.py", "bindings/python/bui/qtcontainers.py", "bindings/python/bui/qtviews.py", "bindings/python/bui/qtdialogs.py", "bindings/python/bui/qtcore.py", "bindings/python/bui/_qtwidget.py", "tools/qt_coverage.py", "bindings/python/bui/host.py", "docs/getting-started.md"]
 ---
 
 If your hands already know Qt, `blenderui.qtsyntax` lets them keep typing: `QApplication`, `QWidget`, `QVBoxLayout`, `clicked.connect(...)`. BUI runs that code on its own C runtime and draws it with Blender's widgets. **Neither Qt nor PySide is needed.**
 
 <Callout type="warning" title="Status: partial">
-The everyday subset on this page works and is tested. But counted against Qt's own widget headers, about **220 of 920** public method names on 25 core widget classes exist (roughly a quarter). Anything that isn't there raises `AttributeError`, so nothing fails silently. See [what's missing](#whats-missing).
+The everyday subset on this page works and is tested. Counted against Qt's own headers (by `tools/qt_coverage.py`), **31%** of the public methods, signals and slots on the 36 core widget classes exist, 18% across all of Qt's widget and GUI classes. Anything that isn't there raises `AttributeError`. A few setters are accepted and ignored: window flags and icons, frame shapes, word wrap, echo mode, validators, scroll-bar policies, maximum sizes and the like (`docs/qt.md` lists them). See [what's missing](#whats-missing).
 </Callout>
 
 <Figure
@@ -159,6 +159,33 @@ sys.exit(app.exec())
 
 `QPainter` supports `fillRect`, `drawRect`, `drawRoundedRect`, `drawEllipse`, `drawLine`, `drawPolyline`, `drawPolygon`, `drawPoint`, `drawArc`, `drawPie`, `drawText` and `drawPixmap`, plus `setPen`, `setBrush`, `setFont`, `setOpacity`, `translate`, `save` and `restore`.
 
+## Containers, models and dialogs
+
+Docks, toolbars, splitters and tool boxes are drawn the Blender way, models show in Blender's tree list, and message boxes are real windows:
+
+```python
+from bui.qtsyntax import (QMainWindow, QDockWidget, QTreeView, QStandardItemModel,
+                          QStandardItem, QMessageBox, Qt)
+
+win = QMainWindow()
+win.addToolBar("Main").addAction("Save", save)   # a row of tool buttons
+model = QStandardItemModel()
+model.setHorizontalHeaderLabels(["Name", "Type"])
+model.appendRow([QStandardItem("Cube"), QStandardItem("Mesh")])
+tree = QTreeView()
+tree.setModel(model)                             # redraws when the model changes
+dock = QDockWidget("Outliner")
+dock.setWidget(tree)
+win.addDockWidget(Qt.LeftDockWidgetArea, dock)   # a Blender panel left of the central widget
+if QMessageBox.question(win, "Quit", "Save changes?") == QMessageBox.Yes:
+    save()
+```
+
+- **Containers:** `QStackedWidget`, `QToolBox` (Blender panels: the Qt API keeps one open, and a click on a header opens or closes that panel on its own, as in Blender), `QSplitter` (region edges you drag), `QToolBar`, `QDockWidget`, `QTabBar`, and `QMainWindow`'s `addToolBar`, `addDockWidget` and `setStatusBar`.
+- **Model/view:** `QStandardItemModel`, `QStringListModel`, the abstract models to subclass, `QModelIndex`, `QItemSelectionModel`, and `QListView`, `QTreeView` and `QTableView`. One row is selected at a time, and views don't edit cells.
+- **Dialogs:** `QMessageBox` with Blender's icons (the static helpers return the button clicked) and `QInputDialog` (`getText`, `getInt`, `getDouble`, `getItem`).
+- **Core:** `QSettings` (an INI file per application, with Qt's groups and arrays), `QKeySequence`, `QShortcut` (the kit's key bindings) and `QClipboard`.
+
 ## Style sheets
 
 `setStyleSheet` understands three things: `color`, `background` (or `background-color`) on containers, and `font-weight: bold`. Everything else is Blender's theme. Qt style sheet selectors, pseudo-states and `QPalette` aren't supported.
@@ -167,11 +194,11 @@ sys.exit(app.exec())
 
 Being upfront, so you don't find out the hard way:
 
-- **Model/view:** `QAbstractItemModel`, `QListView`, `QTreeView`, `QTableView` and delegates. Use the `*Widget` classes instead.
-- **Classes:** `QSplitter`, `QDockWidget`, `QToolBar`, `QStackedWidget` (as a real class), `QToolBox`, `QDateEdit` and friends, `QCalendarWidget`, `QGraphicsScene`, OpenGL widgets.
-- **Most of `QWidget`'s surface:** focus-policy details, `setWindowFlags`, geometry helpers, `grab`.
-- **Infrastructure:** `QSettings`, `QThread`, `QClipboard`, drag and drop, `QShortcut`, rich text.
-- **Drawn dialogs:** `QMessageBox` and `QInputDialog` aren't drawn yet. `QMessageBox.information`, `warning`, `critical` and `about` return `Ok` at once, and `question` returns `Yes` at once, without showing anything.
+- **Classes:** `QDateEdit` and friends, `QCalendarWidget`, `QThread`, `QGraphicsScene`, OpenGL widgets.
+- **Model/view:** delegates, editing inside a view, and selecting more than one row.
+- **Docks:** they stay docked (no floating or tabbed docks).
+- **Infrastructure:** drag and drop, rich text, stylesheet selectors and `QPalette`.
+- **Accepted and ignored:** window flags and icons, frame shapes, word wrap, echo mode, validators, scroll-bar policies and maximum sizes, among others. The [full list](https://github.com/ppmpreetham/BUI/blob/main/docs/qt.md#coverage) is in `docs/qt.md`, and `tools/qt_coverage.py` lists what's missing per class.
 
 <ComingSoon feature="Running PySide6 programs unchanged">
 The plan is to reach parity with the tkinter layer: measure against PySide6 itself, run the same programs on real Qt and on BUI to compare them, fill in the classes above, and then add an `install()` so `import PySide6` programs run unchanged, as tkinter programs already do.

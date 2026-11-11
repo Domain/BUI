@@ -40,7 +40,15 @@ Anything not listed raises `AttributeError` — nothing fails silently.
 | `Signal` (`pyqtSignal`, `Signal_`) | class-level signals; `connect/disconnect/emit`; slots taking fewer arguments are called with fewer |
 | `QTimer`, `QPropertyAnimation`, `QEasingCurve` | `start/stop/singleShot/setInterval/setSingleShot`, `timeout`; animation at 120 Hz with easing, `finished/valueChanged` |
 | Value types | `QColor`, `QPen`, `QBrush`, `QFont`, `QPoint`, `QSize`, `QRect`, `QPixmap`/`QImage`, `QIcon`, `QMargins`, `QSizePolicy`, `Qt` constants, events (`QMouseEvent`, `QKeyEvent`, `QWheelEvent`, `QPaintEvent`, `QCloseEvent`) |
-| `QMessageBox` / `QFileDialog` | non-blocking stubs (not drawn yet) / Blender's File Browser (`BUI_FILEDIALOG=native` for the OS dialogs) |
+| `QMessageBox` / `QFileDialog` | real dialogs: icons, standard buttons, `exec()` returns the button; static `information/warning/critical/question/about` / Blender's File Browser (`BUI_FILEDIALOG=native` for the OS dialogs) |
+| `QInputDialog` | `getText/getInt/getDouble/getItem` and the instance API (`setInputMode`, `setLabelText`, value setters and getters, `*ValueSelected`) |
+| `QStackedWidget`, `QTabBar` | `addWidget/insertWidget/removeWidget/setCurrentIndex/setCurrentWidget/indexOf`, `currentChanged/widgetRemoved`; `addTab/insertTab/removeTab/tabText`, `tabBarClicked` |
+| `QToolBox` | items as Blender panels: `addItem/insertItem/removeItem/setCurrentIndex/itemText/setItemEnabled/setItemToolTip`; a header click opens one panel on its own |
+| `QSplitter` | Blender's region edges, dragged: `addWidget/insertWidget/replaceWidget/sizes/setSizes/setStretchFactor/setOrientation/setHandleWidth`, `splitterMoved` |
+| `QToolBar`, `QDockWidget` | `addAction` (action, text, icon, slot)/`addWidget/addSeparator/removeAction/setToolButtonStyle`, `actionTriggered`; a titled panel with `setWidget/toggleViewAction`, `visibilityChanged`; `QMainWindow.addToolBar/addDockWidget/setStatusBar/takeCentralWidget` |
+| Model/view | `QStandardItemModel/QStandardItem`, `QStringListModel`, `QAbstractItemModel/ListModel/TableModel` to subclass, `QModelIndex`, `QItemSelectionModel`; `QListView/QTreeView/QTableView` (one selected row, no cell editing) |
+| `QSettings`, `QKeySequence`, `QShortcut`, `QClipboard` | an INI file with groups and arrays; `Ctrl+S` sequences and standard keys; shortcuts through the kit's key bindings (`QAbstractButton.setShortcut` too); the window's clipboard |
+| QObject / QWidget extras | `blockSignals`, `setProperty/property`, `findChild(ren)`, `mapTo/mapFrom/childAt/childrenRect`, `adjustSize`, `hasFocus/clearFocus`, `showEvent/hideEvent`, widget actions, `statusTip/whatsThis/accessibleName`, focus and context-menu policies |
 
 ¹ `setStyleSheet`: `color`, `background(-color)` on containers, `font-weight: bold`.
 
@@ -97,12 +105,15 @@ as `tk scaling` and `wm`).
 
 ## Not implemented
 
-- **Qt:** QSS selectors/pseudo-states, `QGraphicsScene`, model/view
-  (`QAbstractItemModel`), rich text, `QThread`, OpenGL widgets.
+- **Qt:** QSS selectors/pseudo-states, `QPalette`, `QGraphicsScene`, delegates and editing in
+  views, `QDateEdit` and `QCalendarWidget`, rich text, `QThread`, drag and drop, OpenGL widgets.
+  `py tools/qt_coverage.py` measures the rest against Qt's headers ([docs/qt-coverage.md](docs/qt-coverage.md)).
 
 ## Extending
 
-Add the member to the facade class in `bindings/python/bui/qtsyntax.py` or
+Add the member to the facade class in `bindings/python/bui/qtsyntax.py` (or its feature
+modules `qtcontainers`, `qtviews`, `qtdialogs`, `qtcore`; Qt properties are one line each with
+`bui._qtprops.qt_properties`) or
 `bindings/python/bui/tksyntax/`, mapping it onto kit node properties
 (`set/get`), geometry (`geom`), or the canvas/text-area calls. New drawing or
 interaction belongs in the C kit (`kit/intern/`). Add a test in

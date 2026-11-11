@@ -7,6 +7,7 @@ All notable changes to **blenderui** (BUI). The format follows
 ## [Unreleased]
 
 ### Added
+- **Qt syntax:** containers drawn the Blender way (`QStackedWidget`, `QToolBox` as Blender panels, `QSplitter` with region edges to drag, `QToolBar`, `QDockWidget`, `QTabBar`, and `QMainWindow.addToolBar` / `addDockWidget` / `setStatusBar`); model/view (`QStandardItemModel`, `QStringListModel`, the abstract models, `QListView`, `QTreeView`, `QTableView` in Blender's tree list); real `QMessageBox` and `QInputDialog` dialogs; `QSettings` (an INI file with Qt's groups and arrays), `QKeySequence`, `QShortcut` and `QClipboard`; `blockSignals`, dynamic properties, `findChildren`, point mapping, `showEvent` / `hideEvent` and the descriptive properties on every widget. Measured by the new `tools/qt_coverage.py` against Qt's headers: 31% of the core widget classes' methods (was 21% by the same count).
 - **Custom themes.** A theme file (JSON, in gpui-kit's shape, with Blender's own names for the colors) adds your
   own themes to Dark and Light: `bui.load_theme(path_or_text)`, `blenderui::load_theme` / `load_theme_file`,
   `app.loadTheme`, `bui.load_theme` (Lua), `BK_theme_load_file` / `BK_theme_load_json` (C), then `set_theme(name)`.
@@ -82,6 +83,7 @@ All notable changes to **blenderui** (BUI). The format follows
   reads the setting when it starts.
 
 ### Fixed
+- **Qt syntax:** `QMessageBox.information` / `question` / ... returned `Ok` or `Yes` without showing anything, and `QStackedWidget` was a plain `QWidget`; `QAbstractButton.setShortcut`, `QWidget.setFocusPolicy` and `QApplication.setApplicationName` did nothing. All work now.
 - **Crash at exit on Wayland:** `exit` on another thread closed libwayland-client while the event loop still called into
   it (SIGSEGV in about 1 of 15 benchmark exits). The library now stays loaded until the process ends.
 - **X11 frame pacing:** an animation frame is due one refresh after the previous frame started, so the render time is part
