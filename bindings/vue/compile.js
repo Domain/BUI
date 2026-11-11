@@ -6,7 +6,8 @@
 // handles) because the DOM's `vModelText` and friends need a browser, and static hoisting into
 // HTML strings (`createStaticVNode`) is off because there is no HTML parser to insert it with.
 // `<style>` blocks are compiled by Vue (scoped ones get `[data-v-xxxx]` selectors) and handed to
-// `addStyle`, which adds them to each window once.
+// `addStyle`, which adds them to each window once. Only HTML templates, JavaScript or TypeScript
+// scripts and CSS styles compile; other languages and `src=` blocks are errors, not silent.
 //
 // SPDX-License-Identifier: GPL-2.0-or-later
 import { createRequire } from 'node:module'
@@ -40,6 +41,42 @@ function load () {
   }
 }
 
+/** `module.stripTypeScriptTypes`, which Node.js still marks experimental: it is the one TypeScript
+ *  tool Node.js ships, so its notice (printed once, on the first `lang="ts"` component) is
+ *  dropped here, and only that one. It only removes types, as `node file.ts` does: enums,
+ *  namespaces and parameter properties are errors (Bun compiles all of TypeScript). */
+function stripTypes (code, filename) {
+  const { stripTypeScriptTypes } = require('node:module')
+  const emit = process.emitWarning
+  process.emitWarning = (warning, ...rest) => {
+    if (!String(warning).includes('stripTypeScriptTypes')) emit.call(process, warning, ...rest)
+  }
+  try {
+    return stripTypeScriptTypes(code)
+  } catch (err) {
+    throw new Error(`@blender-ui/vue: ${filename}: ${err.message} (Node.js strips TypeScript types only; use a const object instead of an enum, or run on Bun)`, { cause: err })
+  } finally {
+    process.emitWarning = emit
+  }
+}
+
+/** The languages this package compiles; anything else would be taken for plain JavaScript or HTML. */
+function checkLanguages (descriptor, filename) {
+  const fail = (what) => { throw new Error(`@blender-ui/vue: ${filename}: ${what} is not supported`) }
+  const { template, script, scriptSetup } = descriptor
+  if (template && template.lang && template.lang !== 'html') fail(`<template lang="${template.lang}">, only HTML`)
+  for (const s of [script, scriptSetup]) {
+    if (s && s.lang && !['js', 'jsx', 'ts', 'tsx'].includes(s.lang)) fail(`<script lang="${s.lang}">`)
+  }
+  for (const block of [template, script, scriptSetup, ...descriptor.styles]) {
+    if (block && block.src) fail('a block with src="…" (put the code in the file)')
+  }
+  // `v-bind()` in a style is kept up to date with a MutationObserver and the document's style rules;
+  // CSS modules need the build tool to hand `$style` over
+  if (descriptor.cssVars.length > 0) fail('v-bind() in <style>')
+  if (descriptor.styles.some((s) => s.module)) fail('<style module>')
+}
+
 /** A 32-bit hash of `s` (FNV-1a) as 8 hex digits: the scope id of a component, from its path. */
 function hash (s) {
   let h = 0x811c9dc5
@@ -56,6 +93,7 @@ export function compileVue (source, filename, { keepTypes = false } = {}) {
   load()
   const { descriptor, errors } = sfc.parse(source, { filename })
   if (errors.length > 0) throw errors[0]
+  checkLanguages(descriptor, filename)
   const id = hash(filename)
   const scopeId = `data-v-${id}`
   const scoped = descriptor.styles.some((s) => s.scoped)
@@ -91,6 +129,6 @@ export function compileVue (source, filename, { keepTypes = false } = {}) {
   out.push('export default _sfc_main')
 
   let code = out.join('\n')
-  if (typescript && !keepTypes) code = require('node:module').stripTypeScriptTypes(code)
+  if (typescript && !keepTypes) code = stripTypes(code, filename)
   return { code, typescript }
 }

@@ -6,8 +6,9 @@
 // a handler or an array of them), `value` and `checked` as properties, and `v-model` (model.js).
 //
 // SPDX-License-Identifier: GPL-2.0-or-later
+import { callWithAsyncErrorHandling, ErrorCodes } from 'vue'
 import host from '@blender-ui/native/host'
-import { setModelValue, setModelUpdate, setModelModifiers } from './model.js'
+import { setModelValue, setModelUpdate, setModelModifiers, refreshModel } from './model.js'
 
 const { applyProps, NO_PROPS } = host
 
@@ -29,12 +30,15 @@ function eventName (key) {
 }
 
 /** Listen for `key` with `next` (a function or an array of them), or stop. One listener per event
- *  stays on the element: a new handler only replaces what it calls, as Vue's own renderer does. */
-function patchEvent (el, key, next) {
+ *  stays on the element: a new handler only replaces what it calls, as Vue's own renderer does.
+ *  Errors in a handler go the way Vue sends them: `onErrorCaptured`, then `app.config.errorHandler`
+ *  (through `instance`, the component whose template has the element), not out of the event loop. */
+function patchEvent (el, key, next, instance) {
   const invokers = (el._vei ??= {})
   const existing = invokers[key]
   if (existing !== undefined && next != null) {
     existing.value = next
+    existing.instance = instance
     return
   }
   const [name, once] = eventName(key)
@@ -44,11 +48,10 @@ function patchEvent (el, key, next) {
         el.removeEventListener(name, invoker)
         invokers[key] = undefined
       }
-      const handler = invoker.value
-      if (Array.isArray(handler)) for (const fn of handler) fn(event)
-      else handler(event)
+      callWithAsyncErrorHandling(invoker.value, invoker.instance, ErrorCodes.NATIVE_EVENT_HANDLER, [event])
     }
     invoker.value = next
+    invoker.instance = instance
     invokers[key] = invoker
     el.addEventListener(name, invoker)
   } else if (existing !== undefined) {
@@ -72,19 +75,32 @@ let warnedHtml = false
 const prevProp = {}
 const nextProp = {}
 
-/** The renderer's `patchProp(el, key, prevValue, nextValue)`. */
-export function patchProp (el, key, prev, next) {
+/** The renderer's `patchProp(el, key, prevValue, nextValue, namespace, parentComponent)`. */
+export function patchProp (el, key, prev, next, namespace, instance) {
   if (isOn(key)) {
-    if (key === 'onUpdate:modelValue') setModelUpdate(el, next)
-    else patchEvent(el, key, next)
+    if (key === 'onUpdate:modelValue') setModelUpdate(el, next, instance)
+    else patchEvent(el, key, next, instance)
     return
   }
   switch (key) {
     case 'modelValue': return setModelValue(el, next)
     case 'modelModifiers': return setModelModifiers(el, next)
-    // the element's state (what was typed), not only its attribute
-    case 'value': el.value = next; return
+    // the element's state (what was typed), not only its attribute; the bound value itself is kept
+    // for a checkbox or a radio in a v-model (a number stays a number), as Vue's DOM renderer does
+    case 'value':
+      el._value = next
+      el.value = next
+      refreshModel(el)
+      return
     case 'checked': el.checked = next; return
+    case 'true-value':
+      el._trueValue = next
+      refreshModel(el)
+      return
+    case 'false-value':
+      el._falseValue = next
+      refreshModel(el)
+      return
     case 'textContent': el.textContent = next ?? ''; return
     case 'innerHTML':
       if (!warnedHtml) {

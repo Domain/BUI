@@ -2,11 +2,12 @@
 // v-model, v-for with keys, slots, provide/inject, scoped styles, lifecycle, plugins, TypeScript.
 import test from 'node:test'
 import assert from 'node:assert'
-import { render, createApp, createRoot, h, ref, onMounted, onUnmounted, nextTick, withModifiers, withKeys, Teleport, signal, Button } from '../index.js'
+import { render, createApp, createRoot, h, ref, onMounted, onUnmounted, nextTick, withModifiers, withKeys, Teleport, signal, Button, TextField } from '../index.js'
 import native from '@blender-ui/native'
 import { compileVue } from '../compile.js'
 import Counter from './fixtures/Counter.vue'
 import Form from './fixtures/Form.vue'
+import Raw from './fixtures/Raw.vue'
 import List from './fixtures/List.vue'
 import Cards from './fixtures/Cards.vue'
 import Show from './fixtures/Show.vue'
@@ -93,6 +94,28 @@ test('Vue: v-model on inputs, checkboxes, radios, selects and widgets', async (t
   find('agree')._dispatch({ kind: 'change', checked: false })
   await tick()
   assert.strictEqual(out(), 'Ada|false|blue|a|s|7:number|hi|42:number|line one|12.5:number', 'removed from the array; unchecked')
+})
+
+test('Vue: v-model keeps the types of bound values, and true-value / false-value', async (t) => {
+  const { window } = open(t, Raw)
+  await settle(window)
+  const find = finder(window)
+  const out = () => find('out').textContent
+  assert.strictEqual(out(), '[1,3]|2:number|no|10', 'initial values')
+  assert.deepStrictEqual([find('c1').checked, find('c2').checked, find('c3').checked], [true, false, true], 'numbers in the array')
+  assert.deepStrictEqual([find('r1').checked, find('r2').checked], [false, true], 'a number radio')
+  assert.strictEqual(find('yn').checked, false)
+  // one event per loop turn, as the native layer delivers them: Vue refreshes a control's model on render
+  for (const [id, checked] of [['c2', true], ['c1', false], ['r1', true], ['yn', true], ['t20', true]]) {
+    find(id)._dispatch({ kind: 'change', checked })
+    await nextTick()
+  }
+  await tick()
+  assert.strictEqual(out(), '[3,2]|1:number|yes|10,20', 'numbers stay numbers; true-value; a Set')
+  assert.strictEqual(find('yn').checked, true)
+  find('yn')._dispatch({ kind: 'change', checked: false })
+  await tick()
+  assert.match(out(), /\|no\|/, 'false-value')
 })
 
 test('Vue: v-for with keys keeps and moves nodes; v-if / v-else-if / v-else; fragments', async (t) => {
@@ -245,6 +268,62 @@ test('Vue: event modifiers (.stop, .self, .enter) as templates compile them', as
   assert.deepStrictEqual(log.splice(0), ['enter'], '.enter ignored other keys')
 })
 
+test('Vue: errors in event and v-model handlers go to app.config.errorHandler, not out of the event loop', async (t) => {
+  const handled = []
+  const Comp = {
+    render: () => h('div', null, [
+      h('div', { id: 'boom', style: 'width: 40px; height: 20px', onClick: () => { throw new Error('click boom') } }),
+      h(TextField, { id: 'tf', modelValue: '', 'onUpdate:modelValue': () => { throw new Error('model boom') } }),
+    ]),
+  }
+  const app = createApp(Comp)
+  app.config.errorHandler = (err) => handled.push(err.message)
+  const { window } = open(t, app)
+  await settle(window)
+  const find = finder(window)
+  find('boom')._dispatch({ kind: 'click' })
+  find('tf')._dispatch({ kind: 'input', value: 'x' })
+  await tick()
+  assert.deepStrictEqual(handled, ['click boom', 'model boom'], 'a throwing handler would have ended the process')
+})
+
+test('Vue: mouse button modifiers, with real and raw events', async (t) => {
+  const log = []
+  const Comp = {
+    render: () => h('div', { id: 'l', style: 'width: 40px; height: 20px', onClick: withModifiers(() => log.push('left'), ['left']), onMousedown: withModifiers(() => log.push('right'), ['right']) }),
+  }
+  const { window } = open(t, Comp)
+  await settle(window)
+  window.click(5, 5)
+  await tick()
+  assert.deepStrictEqual(log, ['left'], 'a real click is the left button')
+  finder(window)('l')._dispatch({ kind: 'click', button: 2 })
+  finder(window)('l')._dispatch({ kind: 'mousedown', button: 2 })
+  assert.deepStrictEqual(log, ['left', 'right'], '.left ignored button 2, .right took it')
+})
+
+test('Vue: a keyed reorder reaches the native tree, and unmounting frees the nodes', async (t) => {
+  const items = ref([{ id: 1, c: '#ff0000' }, { id: 2, c: '#00ff00' }, { id: 3, c: '#0000ff' }])
+  const shown = ref(true)
+  const Comp = {
+    render: () => (shown.value
+      ? h('div', null, items.value.map((it) => h('div', { key: it.id, style: `height: 20px; width: 40px; background: ${it.c}` })))
+      : h('p', 'gone')),
+  }
+  const { window } = open(t, Comp)
+  await settle(window)
+  const column = async () => { const s = await window.screenshot(); return [10, 30, 50].map((y) => at(s, 5, y).join()) }
+  assert.deepStrictEqual(await column(), ['255,0,0', '0,255,0', '0,0,255'])
+  const nodes = window._nodes.size
+  items.value = [items.value[2], items.value[0], items.value[1]]
+  await nextTick(); await tick()
+  assert.deepStrictEqual(await column(), ['0,0,255', '255,0,0', '0,255,0'], 'the pixels follow the keys')
+  for (let i = 0; i < 10; i++) { shown.value = !shown.value; await nextTick(); await tick(5) }
+  shown.value = true
+  await nextTick(); await tick()
+  assert.ok(window._nodes.size <= nodes + 1, `native nodes did not pile up (${nodes} -> ${window._nodes.size})`)
+})
+
 test('Vue: createApp, plugins, render(app), createRoot; unmounting when the window closes', async (t) => {
   const events = []
   const Child = { setup () { onMounted(() => events.push('mounted')); onUnmounted(() => events.push('unmounted')); return () => h('div', { id: 'child' }, 'hi') } }
@@ -262,11 +341,12 @@ test('Vue: createApp, plugins, render(app), createRoot; unmounting when the wind
   await tick()
   assert.deepStrictEqual(events, ['mounted', 'unmounted'], 'closing the window unmounted the app')
 
-  const second = open(t, { render: () => h('b', { id: 'one' }, 'one') }, { app: app_.app })
-  const root = createRoot(second.window)
+  const second = app_.app.window({ width: 240, height: 160 }) // a window of our own, for createRoot
+  const root = createRoot(second)
+  root.render({ render: () => h('b', { id: 'one' }, 'one') })
   root.render({ render: () => h('b', { id: 'two' }, 'two') })
   await tick()
-  const find2 = finder(second.window)
+  const find2 = finder(second)
   assert.ok(find2('two') && !find2('one'), 'a root replaces what it showed')
 })
 
@@ -293,5 +373,9 @@ test('Vue: Button, and what compile.js does to a template', () => {
   const big = '<template><div>' + '<p>static text</p>'.repeat(40) + '</div></template>'
   assert.doesNotMatch(code(big), /createStaticVNode/, 'no static HTML strings: there is no HTML parser to insert them with')
   assert.throws(() => code('<template><div/></template><style lang="scss">a { b { c: d } }</style>'), /scss/)
+  assert.throws(() => code('<template lang="pug">div</template>'), /pug/, 'a template language is an error, not HTML')
+  assert.throws(() => code('<template><div/></template><style>.a { color: v-bind(c) }</style><script setup>const c = 1</script>'), /v-bind/, 'v-bind() in <style> needs a browser')
+  assert.throws(() => code('<template><div/></template><style module>.a{color:red}</style>'), /module/, 'CSS modules')
+  assert.throws(() => code('<script setup lang="ts">enum E { A }</script><template><div/></template>'), /enum/, 'a TypeScript enum says so')
   assert.match(code('<template><div/></template><style scoped>.a{color:red}</style>'), /addStyle[\s\S]*data-v-/)
 })

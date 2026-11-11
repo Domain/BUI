@@ -78,9 +78,12 @@ Everything `vue` exports is exported here too (`ref`, `computed`, `h`,
   `@mouseleave`, `@wheel`, `@keydown`, `@keyup`, `@input` and `@change`, with the
   modifiers `.stop`, `.prevent`, `.self`, `.once`, `.enter` and the other key
   and mouse-button ones.
+- **Errors in event handlers** go through Vue's error handling (`onErrorCaptured`, then
+  `app.config.errorHandler`), not straight out of the event loop.
 - **`v-model`** on `<input>` (text, number, range, checkbox, radio), `<textarea>`,
   `<select>` and the Blender widgets. A checkbox can be bound to an
-  array or a `Set`. `number` and `range` give numbers.
+  array or a `Set` (and takes `true-value` / `false-value`), and `:value` keeps its type: a
+  number stays a number. `number` and `range` inputs give numbers.
 - **Styles:** a component's `<style>` and `<style scoped>` blocks (plain CSS) work;
   BUI adds each component's stylesheet to a window once.
 - **Teleport** to an element (not a selector: there is no page to search).
@@ -93,7 +96,12 @@ Everything `vue` exports is exported here too (`ref`, `computed`, `h`,
 - **`v-model.trim` / `.number` / `.lazy` on a plain `<input>`:** the template compiler drops
   modifiers there. They work on the Blender widgets (`<TextField v-model.trim="t">`).
   `type="number"` and `type="range"` inputs give numbers anyway.
-- **`<style lang="scss">`** and the like: only CSS; `v-bind()` in `<style>`.
+- **`<style lang="scss">`** and the like: only CSS. `v-bind()` in `<style>`, `<style module>`,
+  `src="…"` blocks and non-HTML templates (`<template lang="pug">`) are compile errors, not
+  silently ignored.
+- **TypeScript enums and namespaces on Node.js:** it strips types only, as `node file.ts`
+  does. Use a const object instead of an enum, or run on Bun, which compiles all of TypeScript.
+- **`<select multiple>`.**
 - **Browser APIs** (`window`, `localStorage`, `fetch`'s DOM-side uses, `getComputedStyle`)
   and **libraries built on the DOM and on CSS** (component libraries such as Vuetify or
   Element Plus): not available. Libraries that are plain JavaScript on top of Vue (a store,
