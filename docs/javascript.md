@@ -214,8 +214,9 @@ Vue 3.5 or newer; Node.js 22.15 or newer.
   to each window once.
 - **Not yet:** `<Transition>` and `<TransitionGroup>` (they need browser CSS
   transitions), `v-html`, `.trim` / `.number` on a plain `<input v-model>` (they
-  work on the widgets), `<style lang="scss">`, and libraries built on the DOM
-  (Vuetify, Element Plus).
+  work on the widgets), `<select multiple>`, `<style lang="scss">` (and
+  `v-bind()` in `<style>`, which are compile errors), TypeScript enums on Node.js
+  (it strips types only), and libraries built on the DOM (Vuetify, Element Plus).
 
 ## Bindings for other frameworks
 

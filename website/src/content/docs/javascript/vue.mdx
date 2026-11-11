@@ -88,7 +88,8 @@ Elements are HTML elements, as in the browser:
 
 - **`class`** takes Tailwind classes, and `:class` objects and arrays work. **`:style`** takes strings and objects, and `v-show` works.
 - **Mouse, keyboard and form events** work: `@click`, `@mousedown`, `@mouseup`, `@mousemove`, `@mouseenter`, `@mouseleave`, `@wheel`, `@keydown`, `@keyup`, `@input` and `@change`, with the modifiers `.stop`, `.prevent`, `.self`, `.once`, `.enter` and the other key and button ones. Events BUI doesn't report (`focus`, `blur`, `dblclick`) never fire.
-- **`v-model`** works on `<input>` (text, number, range, checkbox, radio), `<textarea>`, `<select>` and the Blender widgets. A checkbox can be bound to an array or a `Set`, and number and range inputs give numbers.
+- **`v-model`** works on `<input>` (text, number, range, checkbox, radio), `<textarea>`, `<select>` and the Blender widgets. A checkbox can be bound to an array or a `Set` (and takes `true-value` / `false-value`), `:value` keeps its type (a number stays a number), and number and range inputs give numbers.
+- **Errors in event handlers** go through Vue's error handling (`onErrorCaptured`, then `app.config.errorHandler`), not straight out of the event loop.
 - **Blocks and components:** `v-if`, `v-for` (keyed too), slots (named ones too), `provide` / `inject`, `defineProps`, `defineEmits`, `defineExpose`, lifecycle hooks and `<Teleport to="…">` to an element work.
 
 ## Blender's widgets
@@ -127,7 +128,9 @@ Refs are the way to hold state in Vue. For state that lives outside components, 
 - **`<Transition>`, `<TransitionGroup>`** and `<KeepAlive>`'s animations: they need a browser's CSS transitions and layout APIs.
 - **`v-html`** and `innerHTML`: build the content with elements.
 - **`v-model.trim`, `.number` and `.lazy` on a plain `<input>`:** Vue's template compiler drops the modifiers there. They work on the Blender widgets, and `type="number"` and `type="range"` give numbers anyway.
-- **`<style lang="scss">`** and the like: only CSS. `v-bind()` in `<style>` isn't there either.
+- **`<style lang="scss">`** and the like: only CSS. `v-bind()` in `<style>`, `<style module>`, `src="…"` blocks and non-HTML templates are compile errors, not silently ignored.
+- **TypeScript enums and namespaces on Node.js:** it strips types only, as `node file.ts` does. Use a const object instead of an enum, or run on Bun, which compiles all of TypeScript.
+- **`<select multiple>`.**
 - **Browser APIs** (`window`, `localStorage`, `getComputedStyle`) and **libraries built on the DOM and CSS** (Vuetify, Element Plus): not available. Libraries that are plain JavaScript on top of Vue, such as a store or a router in memory mode, don't touch the DOM, but none is tested with BUI yet.
 
 ## Standalone apps
