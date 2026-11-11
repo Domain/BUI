@@ -8,7 +8,7 @@ import { VUE_FILE, SELF, selfFile, compileVue } from './compile.js'
 export default {
   name: '@blender-ui/vue',
   setup (build) {
-    build.onResolve({ filter: SELF }, () => ({ path: selfFile() }))
+    build.onResolve({ filter: SELF }, (args) => ({ path: selfFile(args.kind === 'require-call') }))
     build.onLoad({ filter: VUE_FILE }, (args) => {
       // Bun transpiles TypeScript itself
       const { code, typescript } = compileVue(fs.readFileSync(args.path, 'utf8'), args.path, { keepTypes: true })

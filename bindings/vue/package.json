@@ -3,11 +3,12 @@
   "version": "0.1.0",
   "description": "Vue 3 for BUI: Blender's UI in native windows from Vue components, refs and single-file components. Node.js and Bun.",
   "type": "module",
-  "main": "index.js",
+  "main": "index.cjs",
   "types": "index.d.ts",
   "exports": {
     ".": {
       "types": "./index.d.ts",
+      "require": "./index.cjs",
       "default": "./index.js"
     },
     "./register": "./register.js",
@@ -20,6 +21,8 @@
   },
   "files": [
     "index.js",
+    "index.cjs",
+    "own.js",
     "index.d.ts",
     "model.js",
     "props.js",
