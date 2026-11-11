@@ -1517,8 +1517,11 @@ static void separator_init(BKNode *n)
 
 static void separator_measure(BKNode *n, int *rw, int *rh)
 {
-  *rw = 0;
-  *rh = BK_MAX(1, (int)(n->factor * u()));
+  /* "vertical": a line across a row (uiButSeparatorLine.is_vertical) */
+  const int size = BK_MAX(1, (int)(n->factor * u()));
+  const bool vertical = (n->flags & NF_VERTICAL) != 0;
+  *rw = vertical ? size : 0;
+  *rh = vertical ? 0 : size;
 }
 
 static void separator_draw(BKNode *n)
@@ -1526,7 +1529,12 @@ static void separator_draw(BKNode *n)
   if (n->flags & NF_LINE) {
     float c[4];
     bk_rgba_alpha(bk_theme.text, 0.15f, c);
-    bk_fill_f(n->x, n->y + n->h / 2, n->w, 1, c);
+    if (n->flags & NF_VERTICAL) {
+      bk_fill_f(n->x + n->w / 2, n->y, 1, n->h, c);
+    }
+    else {
+      bk_fill_f(n->x, n->y + n->h / 2, n->w, 1, c);
+    }
   }
 }
 
