@@ -49,8 +49,8 @@ static int state_of(const BKNode *n)
   if (!(n->flags & NF_EMBOSS)) {
     st |= ST_NO_EMBOSS;
   }
-  if (n->flags & NF_SELECTED) {
-    st = (st & ~ST_HOVER) | ST_SELECT; /* part of a multi-drag */
+  if (n->flags & (NF_SELECTED | NF_SELECT)) {
+    st = (st & ~ST_HOVER) | ST_SELECT; /* part of a multi-drag, or held (UI_SELECT) */
   }
   if (n->flags & NF_ACTIVE_DEFAULT) {
     st |= ST_ACTIVE_DEFAULT;
