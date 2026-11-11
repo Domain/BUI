@@ -3,7 +3,7 @@
 [D](https://dlang.org) bindings for BUI: Blender's widget drawing, layout and
 interaction rules in a small C runtime, with an idiomatic D face.
 
-The package has two layers:
+The package has three layers:
 
 - **Raw declarations** in `bui.kit`, `bui.gpu` and `bui.capi`, a one-to-one
   translation of `kit/include/BUI_kit.h`, `gpu/include/GPU_raster.h`,
@@ -13,8 +13,11 @@ The package has two layers:
   `bui.raster`, `bui.image`, `bui.video`, `bui.canvas`, `bui.tree`,
   `bui.textarea`, `bui.custom` and `bui.theme`. They turn handles into classes,
   delegates into callbacks, and C arrays into D slices.
+- **HTML, CSS and RSX** in `bui.html`, `bui.css` and `bui.rsx`: an `Element`
+  tree, tag constructors, a CSS cascade and a compile-time `rsx!` mixin that
+  turns markup into that tree.
 
-`import bui;` gives you both.
+`import bui;` gives you all of them.
 
 ## Requirements
 
@@ -35,6 +38,7 @@ From this repository:
 cd bindings/d
 dub run --config=hello      # a native window
 dub run --config=headless   # render off-screen, no window
+dub run --config=rsx        # an HTML/CSS page in a native window
 dub run --config=test       # the integration suite
 ```
 
@@ -137,6 +141,84 @@ context.release(r[0] + r[2] / 2, r[1] + r[3] / 2, 0);
 `context.render` returns the number of damaged regions redrawn. `full = true`
 forces a complete frame. `needsRender` and `animating` tell you when there is
 work to do.
+
+## HTML, CSS and RSX
+
+`bui.html` builds a DOM-like `Element` tree and realises it as kit nodes.
+`bui.css` parses a practical CSS subset and cascades it over the tree.
+`bui.rsx` turns markup into the same calls at compile time:
+
+```d
+int count;
+Element counter;
+
+auto page = mixin(rsx!`
+    <body class="app">
+        <style>
+            .app { background: #1e1e1e; padding: 12px; color: #e6e6e6; }
+            .row { display: flex; flex-direction: row; gap: 6px; }
+            button:hover { color: #8fd4ff; }
+        </style>
+        <h1>BUI RSX</h1>
+        <p id="count">Count: {count}</p>
+        <div class="row">
+            <button onclick={() { ++count; counter.setText("Count: " ~ to!string(count)); }}>Add</button>
+        </div>
+    </body>
+`);
+
+auto document = new Document(page);
+counter = document.find("#count");
+
+auto context = new Context(document.node());
+auto window = new Window(context, "BUI RSX", 360, 180);
+window.show();
+run();
+```
+
+The same tree can be written by hand: `body_(div(h1("Hello"), p("text")).class_("card"))`.
+`Element` has `id`, `class_`, `attr`, `style`, `text`, `setText`, `child`,
+`append` and the event methods (`onClick`, `onChange`, ...).
+
+`Document` runs the user-agent sheet plus the document's `<style>` elements and
+any CSS string passed to its constructor, then maps:
+
+- block boxes and inline text to frames and labels;
+- `display: flex` with `flex-direction: row` to a pack row, column to a pack
+  column;
+- `display: grid` to a frame grid with column weights;
+- `padding`, `margin`, `gap`, `width`, `height`, `flex`, colours, borders,
+  fonts, `text-align`, `cursor`, `visibility` and `object-fit` to the kit's
+  properties;
+- tables to a frame grid with captions above it;
+- standard widgets (`input`, `select`, `textarea`, `button`, `progress`,
+  `meter`) to their kit controls;
+- `img`, `canvas` and `video` to the replaced nodes.
+
+Selectors include type, `#id`, `.class`, attributes, descendant/child/sibling
+combinators, dynamic states such as `:hover` and `:active`, and the usual
+specificity plus inline-style precedence. Custom properties, `var()`, `em`,
+`rem`, `px`, `vw` and `vh` resolve.
+
+Tag constructors keep HTML names, with four exceptions for D: `body_`,
+`template_`, `object_` and `select_` (because `bui.tree.select` already exists).
+Markup inside `rsx!` always uses the HTML spelling, so `<select>` is fine there.
+
+`rsx!` parses in CTFE and lowers to ordinary `Element` calls: attributes,
+`{expression}` text and values, `onclick`/`onchange`/... delegates, boolean
+attributes, entities, comments, void tags, raw `<style>` text and custom
+elements. Dynamic attributes such as `class={names}` and `hidden={flag}`
+stringify or toggle through `flagAttr`.
+
+`Document.restyle` re-runs the cascade and applies visual properties after
+`Element.setState("hover", true)` or in the kit `ENTER`/`LEAVE`/`PRESS`/
+`RELEASE` handlers; layout structure is fixed when the document is built. A
+changed text leaf updates in place with `Element.setText`; a different document
+structure needs a new `Document`.
+
+The subset is deliberately smaller than the Rust engine's full taffy layout: no
+flex wrapping, no media queries, no pseudo-elements, no animations and no
+Tailwind. Text stays one label per leaf.
 
 ## Events
 
@@ -327,9 +409,11 @@ default). LDC defaults to the static CRT, so `dub.json` passes
 
 - `examples/hello.d` — slider and button in a native window.
 - `examples/headless.d` — no window: render, click, read pixels.
+- `examples/rsx_page.d` — an HTML/CSS page from `rsx!` in a native window.
 - `tests/run.d` — version, nodes and properties, geometry, render/input,
   clipboard, images, text areas, canvases, trees, menus, custom nodes, host
-  errors, themes, icons and the stable C API version.
+  errors, themes, icons, the CSS cascade, the HTML realiser, RSX and the stable
+  C API version.
 
 Run the suite with `dub run --config=test`. It is a normal executable, so it
 also works from CI steps that expect a process exit code.

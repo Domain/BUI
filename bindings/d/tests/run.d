@@ -31,6 +31,9 @@ void main() {
     testCustom();
     testHostErrors();
     testTheme();
+    testCss();
+    testHtml();
+    testRsx();
     testCapi();
     writeln("bindings/d: all tests passed");
 }
@@ -370,6 +373,151 @@ private void testTheme() {
     check(unit() > 0, "widget unit");
     check(iconCount() > 0, "icon count");
     check(iconName(1).length > 0, "icon name");
+}
+
+private void testCss() {
+    auto sheet = Stylesheet.parse(`
+        div { color: #ff0000; font-size: 20px; }
+        .card { background: #202020; padding: 8px; }
+        #main { border: 2px solid #00ff00; }
+        div.card:hover { color: #0000ff; }
+    `);
+    check(sheet.ruleCount() == 4, "css rule count");
+
+    auto element = div("x").class_("card").id("main");
+    Style base = Style.init;
+    base.fontSize = 11.0f;
+    auto style = sheet.compute(element, base, "color: #00ff00");
+    check(style.color.g == 1 && style.color.r == 0, "inline style wins");
+    check(style.fontSize == 20.0f, "type selector");
+    check(style.hasBackground && style.background.r > 0, "class background");
+    check(style.borderWidth == 2.0f, "id border");
+    check(style.padding[0] == 8.0f && style.padding[2] == 8.0f, "padding shorthand");
+
+    element.setState("hover", true);
+    auto hovered = sheet.compute(element, base);
+    check(hovered.color.b == 1 && hovered.color.r == 0, "hover pseudo-class");
+}
+
+private void testHtml() {
+    auto page = body_(
+        h1("Hello"),
+        p("World ", strong("bold"), " text"),
+        div(
+            input().attr("type", "text").attr("value", "abc"),
+            button("OK")
+        ).class_("card"),
+        table(
+            caption("Data"),
+            tbody(
+                tr(td("A"), td("B")),
+                tr(td("1").attr("colspan", "2"))
+            )
+        ),
+        select_(option("One"), option("Two").attr("selected"))
+    );
+
+    auto document = new Document(page, `
+        .card { background: #202020; padding: 8px; border: 2px solid #ff8800; }
+        button:hover { color: #00ff00; }
+    `);
+
+    auto heading = document.find("h1");
+    check(heading !is null && heading.node.typeName() == "label", "html h1 label");
+    check(heading.node.str("text") == "Hello", "html h1 text");
+    check(heading.style().fontSize == 22.0f, "html h1 user-agent size");
+
+    auto card = document.find(".card");
+    check(card !is null && card.node.typeName() == "frame", "html card frame");
+    check(card.style().hasBackground, "html card background");
+    check(card.node.childCount() == 1, "html card flow child");
+
+    auto text = document.find("input[type=text]");
+    check(text !is null && text.node.str("value") == "abc", "html text input");
+
+    auto pressable = document.find("button");
+    check(pressable.node.typeName() == "button", "html button widget");
+    pressable.setState("hover", true);
+    document.restyle();
+    check(pressable.style().color.g == 1, "html hover restyle");
+
+    auto caption_ = document.find("caption");
+    check(caption_ !is null && caption_.node.str("text") == "Data", "html caption");
+    check(document.find("table").node.childCount() == 2, "html caption above grid");
+
+    auto dropdown = document.find("select");
+    check(dropdown.node.typeName() == "dropdown", "html select dropdown");
+    check(dropdown.node.strs("items").length == 2, "html select options");
+    check(dropdown.node.num("value") == 1, "html selected option");
+}
+
+private void testRsx() {
+    int count = 3;
+    string label = "dynamic";
+
+    auto page = mixin(rsx!`
+        <body class="app">
+            <style>
+                .app { background: #202020; padding: 6px; }
+                h1 { color: #ff0000; font-size: 22px; }
+            </style>
+            <h1>Hello &amp; welcome</h1>
+            <p id="line">Count: {count} and {label}</p>
+            <div id="main" class="panel card">
+                <span>Span</span>
+                <strong>Bold</strong>
+            </div>
+            <button onclick={() { ++count; }}>Go</button>
+            <input type="text" value="abc">
+            <input type="checkbox" checked>
+            <img src="pic.png" width="32" height="32" alt="pic">
+            <my-widget data-x="1">Custom</my-widget>
+        </body>
+    `);
+
+    auto document = new Document(page);
+
+    auto heading = document.find("h1");
+    check(heading.node.str("text") == "Hello & welcome", "rsx entities");
+    check(heading.style().fontSize == 22.0f, "rsx style element");
+
+    auto line = document.find("#line");
+    check(line.node.str("text") == "Count: 3 and dynamic", "rsx interpolation");
+    line.setText("Count: 4");
+    check(line.node.str("text") == "Count: 4", "rsx setText");
+
+    auto main_ = document.find("#main");
+    check(main_ !is null && main_.attrValue("class") == "panel card", "rsx class");
+    check(main_.children().length == 2, "rsx children");
+
+    auto button = document.find("button");
+    check(button.node.typeName() == "button" && button.node.str("text") == "Go",
+          "rsx button");
+
+    auto text = document.find("input[type=text]");
+    check(text.node.typeName() == "text" && text.node.str("value") == "abc",
+          "rsx text input");
+
+    auto checkbox = document.find("input[type=checkbox]");
+    check(checkbox.node.typeName() == "checkbox" && checkbox.node.num("value") == 1,
+          "rsx checkbox");
+
+    auto image = document.find("img");
+    check(image.node.typeName() == "image", "rsx image");
+    check(document.find("my-widget").attrValue("data-x") == "1", "rsx custom tag");
+
+    string cls = "one two";
+    bool on = true;
+    bool off = false;
+    auto dynamic = mixin(rsx!`
+        <div class={cls}>
+            <span hidden={on}>x</span>
+            <span disabled={off}>y</span>
+        </div>
+    `);
+    check(dynamic.attrValue("class") == "one two", "rsx dynamic class");
+    check(dynamic.children()[0].hasAttr("hidden"), "rsx dynamic flag on");
+    check(!dynamic.children()[1].hasAttr("disabled"), "rsx dynamic flag off");
 }
 
 private void testCapi() {

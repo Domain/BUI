@@ -1,13 +1,14 @@
 # D: a DUB package with wrappers and the raw kit
 
 The `bindings/d` package gives D programs BUI's widgets and interactions. It is
-a normal DUB package with two layers: raw `extern(C)` declarations that match
-the C headers one to one, and D classes and delegates that make the common
-paths feel like D.
+a normal DUB package with three layers: raw `extern(C)` declarations that match
+the C headers one to one, D classes and delegates that make the common paths
+feel like D, and an HTML/CSS/RSX authoring layer.
 
 - [Install](#install)
 - [A first window](#a-first-window)
 - [Headless rendering](#headless-rendering)
+- [HTML, CSS and RSX](#html-css-and-rsx)
 - [The package](#the-package)
 - [Nodes and properties](#nodes-and-properties)
 - [Events](#events)
@@ -125,6 +126,79 @@ anything still needs a frame. The same input methods (`press`, `release`,
 `motion`, `wheel`, `scroll`, `key`, `keyRelease`, `contextMenu`, `button`)
 drive widgets without a platform window, which is how `tests/run.d` works.
 
+## HTML, CSS and RSX
+
+`bui.html` builds an `Element` tree, `bui.css` cascades a CSS subset over it,
+and `bui.rsx` lowers markup to the same `Element` calls at compile time:
+
+```d
+import bui;
+import std.conv : to;
+
+int count;
+Element counter;
+
+auto page = mixin(rsx!`
+    <body class="app">
+        <style>
+            .app { background: #1e1e1e; padding: 12px; color: #e6e6e6; }
+            .row { display: flex; flex-direction: row; gap: 6px; }
+            button:hover { color: #8fd4ff; }
+        </style>
+        <h1>BUI RSX</h1>
+        <p id="count">Count: {count}</p>
+        <div class="row">
+            <button onclick={() { ++count; counter.setText("Count: " ~ to!string(count)); }}>Add</button>
+        </div>
+    </body>
+`);
+
+auto document = new Document(page);
+counter = document.find("#count");
+
+auto context = new Context(document.node());
+```
+
+The hand-written form uses the tag constructors and chainable methods:
+`body_(div(h1("Hello"), p("text")).class_("card"))`. `Element` has `id`,
+`class_`, `attr`, `style`, `text`, `setText`, `child`, `append` and the event
+methods (`onClick`, `onChange`, ...).
+
+`Document` combines the user-agent sheet, the document's `<style>` elements and
+an optional CSS string, then realises the tree:
+
+- block boxes and text become frames and labels;
+- `display: flex` maps to a pack row or column; `display: grid` maps to a frame
+  grid;
+- `padding`, `margin`, `gap`, `width`, `height`, `flex`, colours, borders,
+  fonts, `text-align`, `cursor`, `visibility` and `object-fit` map to kit
+  properties;
+- tables become a frame grid with captions above it;
+- `input`, `select`, `textarea`, `button`, `progress` and `meter` become their
+  kit controls; `img`, `canvas` and `video` become replaced nodes.
+
+Type, `#id`, `.class`, attribute and combinator selectors work, including
+dynamic states such as `:hover` and `:active`, with standard specificity and
+inline-style precedence. Custom properties, `var()`, `em`, `rem`, `px`, `vw`
+and `vh` resolve.
+
+Tag constructors keep HTML names except `body_`, `template_`, `object_` and
+`select_`; the first three collide with D and `bui.tree.select` already exists.
+Markup always uses the HTML spelling: `<select>` inside `rsx!` needs no
+underscore.
+
+`rsx!` handles attributes, `{expression}` text and values, event delegates,
+boolean attributes, entities, comments, void tags, raw `<style>` text and
+custom elements. `class={names}` and `hidden={flag}` toggle through
+`flagAttr`. `Document.restyle` re-runs the cascade for visual properties after
+a state change; `Element.setText` updates a realised text leaf in place. Layout
+structure is fixed when the document is built, so a different structure needs a
+new `Document`.
+
+The CSS subset is smaller than the Rust engine's taffy layout: no flex
+wrapping, media queries, pseudo-elements, animations or Tailwind, and text does
+not wrap around floats.
+
 ## The package
 
 | Module          | What it covers                                                                 |
@@ -141,6 +215,9 @@ drive widgets without a platform window, which is how `tests/run.d` works.
 | `bui.textarea`  | Text and selection editing on `textarea` nodes                                 |
 | `bui.custom`    | `CustomHandlers` for host-drawn `custom` nodes                                 |
 | `bui.theme`     | Scale, font, Dark/Light themes, theme colors and Blender's icons               |
+| `bui.css`       | `Stylesheet`, `Style`, selectors, colours and CSS tokens                       |
+| `bui.html`      | `Element`, tag constructors, the user-agent sheet and `Document`               |
+| `bui.rsx`       | The compile-time `rsx!` markup mixin                                           |
 | `bui.kit`       | The complete raw `BK_*` API                                                    |
 | `bui.gpu`       | The complete raw `BUI_*` raster, text, texture and sink API                    |
 | `bui.capi`      | The stable render-sink ABI in `api/bui_c_api.h`                                |
@@ -357,12 +434,14 @@ Release, and copy `bui_kit`, `bui_gpu`, `bui_core` and `bui_api` into
 dub build --config=library
 dub run --config=hello
 dub run --config=headless
+dub run --config=rsx
 dub run --config=test
 ```
 
 `tests/run.d` covers versioning, nodes, properties, geometry, render and input,
 clipboard, images, animation, text areas, canvases, trees, menus, custom nodes,
-host exceptions, themes, icons and the stable C API version.
+host exceptions, themes, icons, the CSS cascade, the HTML realiser, RSX and the
+stable C API version.
 
 On Windows the C kit is built with the dynamic UCRT (`/MD`). LDC defaults to
 the static CRT, so the package passes `-mscrtlib=msvcrt`; this keeps one CRT in

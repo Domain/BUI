@@ -1,14 +1,14 @@
 ---
 title: BUI for D
 sidebarLabel: Overview
-description: A DUB package with a one-to-one raw C API and idiomatic D wrappers for BUI's nodes, windows, menus, images, canvases, trees and custom drawing.
+description: A DUB package with a one-to-one raw C API, idiomatic D wrappers and an HTML, CSS and RSX layer for BUI's nodes, windows, menus, images, canvases, trees and custom drawing.
 section: D
 order: 10
 languages: ["d"]
-sources: ["bindings/d/README.md", "bindings/d/dub.json", "bindings/d/source/bui/node.d", "bindings/d/source/bui/context.d", "bindings/d/source/bui/window.d", "bindings/d/tests/run.d", "docs/d.md"]
+sources: ["bindings/d/README.md", "bindings/d/dub.json", "bindings/d/source/bui/node.d", "bindings/d/source/bui/context.d", "bindings/d/source/bui/window.d", "bindings/d/source/bui/html/realize.d", "bindings/d/source/bui/rsx.d", "bindings/d/tests/run.d", "docs/d.md"]
 ---
 
-**The `bindings/d` package gives D programs Blender's widget drawing, layout and interaction rules.** It is a DUB package with two layers: raw `extern(C)` declarations that match the C headers one to one, and D classes and delegates for the common paths. Both come from `import bui;`.
+**The `bindings/d` package gives D programs Blender's widget drawing, layout and interaction rules.** It is a DUB package with three layers: raw `extern(C)` declarations that match the C headers one to one, D classes and delegates for the common paths, and an HTML/CSS/RSX authoring layer. All of them come from `import bui;`.
 
 The package lives in the repository. Add it to a DUB project as a path dependency:
 
@@ -103,11 +103,40 @@ context.release(r[0] + r[2] / 2, r[1] + r[3] / 2, 0);
 | `bui.textarea` | Text and selection editing by UTF-8 byte offsets                               |
 | `bui.custom`   | Event, frame and draw callbacks for host-drawn `custom` nodes                   |
 | `bui.theme`    | Scale, font, Dark/Light themes, theme colors and Blender's icons               |
+| `bui.css`      | `Stylesheet`, `Style`, selectors, colours and tokens                           |
+| `bui.html`     | `Element`, tag constructors, the user-agent sheet and `Document`               |
+| `bui.rsx`      | The compile-time `rsx!` markup mixin                                           |
 | `bui.kit`      | The complete raw `BK_*` API                                                    |
 | `bui.gpu`      | The complete raw `BUI_*` raster, text, texture and sink API                    |
 | `bui.capi`     | The stable render-sink ABI                                                     |
 
 Node types include layouts (`frame`, `column`, `row`, `grid`, `box`, `panel`, `tabs`, `scroll`), widgets (`label`, `button`, `checkbox`, `slider`, `number`, `dropdown`, `enum`, `swatch`, `menubar`), views (`list`, `tree`, `gridview`, `canvas`, `textarea`, `image`, `video`), editors (`nodeeditor`, `filebrowser`) and `custom`.
+
+## HTML, CSS and RSX
+
+`bui.html` builds an `Element` tree and realises it as kit nodes. `bui.css` cascades a CSS subset over it. `bui.rsx` parses markup into the same calls at compile time:
+
+```d
+import bui;
+
+int count;
+
+auto page = mixin(rsx!`
+    <body>
+        <style>
+            h1 { color: #e6e6e6; }
+            button:hover { color: #8fd4ff; }
+        </style>
+        <h1>Hello</h1>
+        <button onclick={() { ++count; }}>Add</button>
+    </body>
+`);
+
+auto document = new Document(page);
+auto context = new Context(document.node());
+```
+
+Tag constructors work without the mixin: `body_(div("text").class_("card"))`. `Document.find` queries the tree by CSS selector, `Element.setText` updates a realised text leaf, and `Document.restyle` re-runs the cascade after a state change. The supported CSS subset, tag naming rules and limits have [their own page](../html-css-rsx/).
 
 ## Events
 
@@ -194,6 +223,7 @@ The declarations match `kit/include/BUI_kit.h`, `gpu/include/GPU_raster.h`, `gpu
 cd bindings/d
 dub run --config=hello      # a native window
 dub run --config=headless   # render off-screen
+dub run --config=rsx        # an HTML/CSS page in a window
 dub run --config=test       # the integration suite
 ```
 

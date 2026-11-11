@@ -64,6 +64,12 @@
             "mainSourceFile": "examples/headless.d"
         },
         {
+            "name": "rsx",
+            "targetType": "executable",
+            "sourcePaths": ["source"],
+            "mainSourceFile": "examples/rsx_page.d"
+        },
+        {
             "name": "test",
             "targetType": "executable",
             "sourcePaths": ["source"],
