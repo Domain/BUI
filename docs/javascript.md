@@ -190,7 +190,9 @@ const count = ref(0)
 import { render } from '@blender-ui/vue'
 import Counter from './Counter.vue'
 
-render(Counter, { title: 'BUI + Vue', width: 420, height: 260, gpu: true })
+const { window } = render(Counter, { title: 'BUI + Vue', width: 420, height: 260, gpu: true })
+// the body is the page: `min-h-screen` makes its background fill the window, not only its content
+window.body.className = 'm-0 min-h-screen bg-[#2b2b2b] text-[#e6e6e6]'
 ```
 
 `@blender-ui/vue` mirrors the other packages: `render(component | app, { props,
@@ -587,6 +589,37 @@ the previous Svelte binding (`Svelte before`) in the same session.
   overran the warm-up, so only its per-update cost is valid from this session.
   Bun also sometimes crashes when a React app quits (after its first frame), a
   bug that predates this work.
+
+### Vue
+
+`bench/cells.js 3000 --gpu --vue [--isolate]` and `bench/startup.js --vue` (`bench/Grid.vue`,
+`Cell0.vue`, `FirstFrame.vue`), a second session on the same laptop (2026-11-11), React and Svelte
+run in it for comparison. Every variant ran at 49–56 FPS here, so compare rows within this section.
+Cells runs interleaved, medians of 3; startup medians of 8.
+
+| 3,000 cells (Node 26 / Bun 1.4)        | FPS         | RAM            | JavaScript per update |
+| -------------------------------------- | ----------: | -------------: | --------------------: |
+| React with state                       | 51.0 / 53.6 | 228 / 118 MB   | 3.1 / 3.9 ms          |
+| Svelte with runes                      | 54.9 / 53.4 | 115 / 98 MB    | 50 / 48 µs            |
+| Vue, state in the root component       | 54.7 / 53.4 | 260 / 142 MB   | 5.4 / 6.7 ms          |
+| Vue, cell 0 a component of its own     | 53.9 / 56.0 | 112 / 107 MB   | 25 / 27 µs            |
+
+| First frame                      | React | Vue    |
+| -------------------------------- | ----: | -----: |
+| QuickJS executable (`bui build`) | 43 ms | 66 ms  |
+| Bun executable (`--bun`)         | 46 ms | 77 ms  |
+| Bun (`--preload …/register`)     | 58 ms | 101 ms |
+| Node.js (`--import …/register`)  | 72 ms | 125 ms |
+
+- **State in the root re-renders everything**, as in React: Vue runs the component's render function
+  and compares the 3,000 cells. Put the changing part in a component of its own and only it re-renders
+  (25–27 µs, memory like Svelte's runes).
+- **Updates apply in a microtask,** so the per-update cost includes the `nextTick` hop. There is no
+  signals row: in a Vue template a BUI signal binds an attribute or a style, not text.
+- **CPU per frame** is left out: for Vue with state in the root on Bun it varied between runs (80%,
+  45%, 50% of a core, against a steady ~100% for the rest).
+- **Startup:** compiled components are cached in `node_modules/.cache/@blender-ui/vue`, and a cached
+  start never loads Vue's compiler: Node.js went from 209 to 125 ms, Bun from 189 to 101 ms.
 
 ## Building
 

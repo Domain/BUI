@@ -6,7 +6,7 @@ section: JavaScript & React
 order: 27
 languages: ["javascript"]
 badges: ["Vue 3.5"]
-sources: ["docs/javascript.md", "bindings/vue/README.md", "bindings/vue/index.js", "bindings/vue/props.js", "bindings/vue/model.js", "bindings/vue/compile.js", "bindings/vue/index.d.ts", "bindings/vue/package.json", "bindings/vue/examples/Counter.vue", "bindings/vue/examples/counter.js", "bindings/node/host.js", "bindings/node/dom.js"]
+sources: ["docs/javascript.md", "bindings/vue/README.md", "bindings/vue/index.js", "bindings/vue/props.js", "bindings/vue/model.js", "bindings/vue/compile.js", "bindings/vue/index.d.ts", "bindings/vue/package.json", "bindings/vue/examples/Counter.vue", "bindings/vue/examples/counter.js", "examples/site/js/TodoVue.vue", "examples/site/js/todo_vue.mjs", "bindings/node/bench/Grid.vue", "bindings/node/bench/cells.js", "bindings/node/host.js", "bindings/node/dom.js"]
 ---
 
 Write Vue components as you would for the browser, and get a native desktop window instead. **`@blender-ui/vue` mounts Vue 3 components into BUI**: refs, `v-model`, `v-if` and `v-for`, slots, `provide` / `inject`, `<script setup>` and TypeScript work as they do on the web, BUI draws the result on the CPU or the GPU, and Blender's widgets are one import away. No Electron, no webview.
@@ -33,7 +33,7 @@ const count = ref(0)
 </script>
 
 <template>
-  <main class="p-6 flex flex-col gap-3 bg-[#2b2b2b] text-[#e6e6e6]">
+  <main class="p-6 flex flex-col gap-3">
     <span>Clicks: {{ count }}</span>
     <Button @click="count++">Add one</Button>
   </main>
@@ -44,8 +44,12 @@ const count = ref(0)
 import { render } from '@blender-ui/vue'
 import Counter from './Counter.vue'
 
-render(Counter, { title: 'Counter', width: 360, height: 200, gpu: true })
+const { window } = render(Counter, { title: 'Counter', width: 360, height: 200, gpu: true })
+// the body is the page: `min-h-screen` makes its background fill the window, not only its content
+window.body.className = 'm-0 min-h-screen bg-[#2b2b2b] text-[#e6e6e6]'
 ```
+
+The window's `body` is the page. A background on a component's root only paints that element's box (the `body` has an 8 px margin by default), so put the page color on `window.body`, with `m-0 min-h-screen` to make it fill the whole window.
 
 Run it:
 
@@ -55,7 +59,7 @@ node --import @blender-ui/vue/register app.js
 bun --preload @blender-ui/vue/register app.js
 ```
 
-`register` teaches the runtime `.vue` files: they import as components, compiled by Vue's own compiler. With Bun you can put the preload in `bunfig.toml` instead: `preload = ["@blender-ui/vue/register"]`.
+`register` teaches the runtime `.vue` files: they import as components, compiled by Vue's own compiler and cached in `node_modules/.cache/@blender-ui/vue`, so a cached start never loads the compiler. Every `import 'vue'` resolves to the one Vue this package uses, wherever the importing file is, and `require('@blender-ui/vue')` works as well as `import`. With Bun you can put the preload in `bunfig.toml` instead: `preload = ["@blender-ui/vue/register"]`.
 
 ## `render`, `createApp` and `createRoot`
 
@@ -113,6 +117,12 @@ const name = ref('')
 </template>
 ```
 
+<Figure
+  shot="js-vue-tasks"
+  alt="A task list in Vue on BUI: a Blender text field and Add button, a list of tasks with Blender checkboxes, and a progress bar"
+  caption="Blender components in a Vue app: <code>TextField</code>, <code>Button</code>, <code>Checkbox</code> and <code>ProgressBar</code>, with <code>v-model</code> (<code>examples/site/js/TodoVue.vue</code>)."
+/>
+
 The ten components are `Button`, `Checkbox`, `Radio`, `NumberField`, `NumberSlider`, `TextField`, `TextArea`, `ColorSwatch`, `Dropdown` and `ProgressBar`. Each is an HTML element underneath (`NumberSlider` is an `<input type="range">`), so it takes the same attributes and events. Their lowercase twins (`<button>`, `<input>`) look like a browser's controls, except inside a `styled` element.
 
 ## Styles
@@ -144,6 +154,19 @@ npx bui run app.js             # run on the QuickJS runtime, no build
 ```
 
 See [standalone executables](../standalone-executables/) for the options.
+
+## Performance
+
+The same scenes as the other bindings, measured in one session with React and Svelte alongside:
+
+<BenchTable id="jsVue3000" />
+
+<BenchTable id="jsVueStartup" />
+
+- **Put the part that changes in a component of its own.** With the state in the root, Vue re-runs the render function and compares all 3,000 cells (5.4–6.7 ms per update, as React with state does). With the changing cell in its own component only that component re-renders: 25–27 µs.
+- **Compiled components are cached** in `node_modules/.cache/@blender-ui/vue`, and a cached start never loads Vue's compiler: Node.js reaches its first frame in 125 ms and Bun in 101 ms (209 and 189 ms before the cache). Built with `bui build`, the app starts in 66 ms (QuickJS) or 77 ms (Bun).
+
+The [benchmarks page](../../performance/benchmarks/) has the method and the full tables.
 
 ## How it works
 

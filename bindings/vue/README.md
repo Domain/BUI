@@ -29,7 +29,7 @@ const count = ref(0)
 </script>
 
 <template>
-  <main class="p-6 flex flex-col gap-3 bg-[#2b2b2b] text-[#e6e6e6]">
+  <main class="p-6 flex flex-col gap-3">
     <span>Clicks: {{ count }}</span>
     <Button @click="count++">Add one</Button>
   </main>
@@ -41,14 +41,26 @@ const count = ref(0)
 import { render } from '@blender-ui/vue'
 import Counter from './Counter.vue'
 
-render(Counter, { title: 'Counter', width: 360, height: 200, gpu: true })
+const { window } = render(Counter, { title: 'Counter', width: 360, height: 200, gpu: true })
+// the body is the page: `min-h-screen` makes its background fill the window, not only its content
+window.body.className = 'm-0 min-h-screen bg-[#2b2b2b] text-[#e6e6e6]'
 ```
+
+The window's `body` is the page. A background on a component's root only paints that element's
+box (the `body` has an 8 px margin by default), so put the page color on `window.body`, with
+`m-0 min-h-screen` to make it fill the whole window.
 
 ```sh
 node --import @blender-ui/vue/register app.js
 bun --preload @blender-ui/vue/register app.js     # or preload = ["@blender-ui/vue/register"] in bunfig.toml
 npx bui build app.js                              # one executable (add --bun for a Bun one)
 ```
+
+`register` compiles `.vue` files with Vue's own compiler and caches the result in
+`node_modules/.cache/@blender-ui/vue`: a cached start never loads the compiler (Node.js reaches its
+first frame in about 125 ms, Bun in about 100). Every `import 'vue'` resolves to the one Vue this
+package uses, wherever the importing file is, so refs are tracked by one runtime. `require()` works
+too (`const { render } = require('@blender-ui/vue')`).
 
 Node.js 22.15 or newer (module hooks), or Bun. The native addon is prebuilt for
 Windows x64; elsewhere, build it from source (see the main README).

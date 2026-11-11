@@ -760,6 +760,17 @@ These snippets are small. This is a larger example, a task list in React, and no
 <br><sub>A task list in React (<code>examples/site/js/todo_react.js</code>); the DOM-like version draws the same</sub>
 </p>
 
+The same task list in Vue 3 (`examples/site/js/TodoVue.vue`, state in refs, `v-model` on the Blender widgets):
+
+<p align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/ppmpreetham/BUI/main/website/public/images/shots/js-vue-tasks-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/ppmpreetham/BUI/main/website/public/images/shots/js-vue-tasks-light.png">
+  <img src="https://raw.githubusercontent.com/ppmpreetham/BUI/main/website/public/images/shots/js-vue-tasks-dark.png" width="440" alt="A task list in Vue on BUI: a Blender text field, button, checkboxes and a progress bar">
+</picture>
+<br><sub>A task list in Vue (<code>examples/site/js/TodoVue.vue</code>)</sub>
+</p>
+
 Node.js 18+ or Bun. Prebuilt for Windows x64, Linux x64 (glibc 2.35 or later)
 and macOS; elsewhere, build the addon from source (`npm run build` in
 `bindings/node`). Guide:
@@ -1767,6 +1778,43 @@ What this means:
   overran the warm-up, so only its per-update cost is valid from this session.
   Bun also sometimes crashes when a React app quits (after its first frame), a
   bug that predates this work.
+
+**Vue, next to React and Svelte** (a second session, 2026-11-11, same laptop, Node.js 26.13 and
+Bun 1.4.4; cells runs interleaved, medians of 3; `bench/cells.js 3000 --gpu --vue [--isolate]`,
+`bench/startup.js --vue`). This machine ran every variant at 49–56 FPS, so compare these rows with
+each other, not with the tables above.
+
+| 3,000 cells                                         |  FPS | CPU per frame |    RAM | JS heap | JavaScript per update |
+| --------------------------------------------------- | ---: | ------------: | -----: | ------: | --------------------: |
+| Node 26: React with state                           | 51.0 |       24.9 ms | 228 MB |   45 MB |                3.1 ms |
+| Node 26: Svelte with runes                          | 54.9 |       17.7 ms | 115 MB |   22 MB |                 50 µs |
+| Node 26: Vue, state in the root component           | 54.7 |       25.6 ms | 260 MB |   44 MB |                5.4 ms |
+| Node 26: Vue, cell 0 a component of its own         | 53.9 |       18.5 ms | 112 MB |   21 MB |                 25 µs |
+| Bun 1.4: React with state                           | 53.6 |       25.8 ms | 118 MB |    8 MB |                3.9 ms |
+| Bun 1.4: Svelte with runes                          | 53.4 |       19.2 ms |  98 MB |   10 MB |                 48 µs |
+| Bun 1.4: Vue, state in the root component           | 53.4 |  8–15 ms (\*) | 142 MB |   16 MB |                6.7 ms |
+| Bun 1.4: Vue, cell 0 a component of its own         | 56.0 |       18.2 ms | 107 MB |   11 MB |                 27 µs |
+
+(\*) CPU per frame varied between runs for this one variant (80%, 45% and 50% of a core, against a steady
+~100% for every other), so it has no single number.
+
+| First frame, median of 8         | React |  Vue | RAM (React / Vue) |
+| -------------------------------- | ----: | ---: | ----------------: |
+| QuickJS executable (`bui build`) | 43 ms | 66 ms |     14.5 / 17.5 MB |
+| Bun executable (`--bun`)         | 46 ms | 77 ms |     29.9 / 40.3 MB |
+| Bun (`--preload …/register`)     | 58 ms | 101 ms |    34.7 / 48.7 MB |
+| Node.js (`--import …/register`)  | 72 ms | 125 ms |    43.7 / 56.3 MB |
+
+- **State in the root re-renders everything, as in React:** Vue runs the component's render function
+  and compares the 3,000 cells, which is 5.4–6.7 ms per update (React with state: 3.1–3.9 ms) and
+  142–260 MB. **Put the changing part in a component of its own,** as Vue code that updates one thing
+  is written, and only that component re-renders: 25–27 µs and 107–112 MB, in line with Svelte's runes.
+- **Vue applies updates in a microtask,** so "JavaScript per update" includes the hop (`nextTick`).
+  There is no signals row: a BUI signal binds an attribute or a style in a Vue template, not text.
+- **Startup:** Vue's compiler is most of its size, so `register` caches compiled components in
+  `node_modules/.cache/@blender-ui/vue` and a cached start never loads it. That took Node.js from 209
+  to 125 ms and Bun from 189 to 101 ms. The standalone executables bundle compiled components and were
+  not affected (66 and 77 ms).
 
 Method, the memory breakdown and how to rerun:
 [docs/javascript.md](docs/javascript.md#performance).
