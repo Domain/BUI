@@ -23,7 +23,7 @@ Every component takes these, and has them as properties:
 | `weight` | `1.0` | Share of the width in a `Row`; `0` keeps the natural width |
 | `fill` | `False` | In a column, grow into the spare height (an editor filling its area) |
 
-Properties after layout: `x`, `y`, `w`, `h` and `rect` (`(x, y, w, h)`). Containers have `add(*children)`, `remove(child)` and `children`.
+Properties after layout: `x`, `y`, `w`, `h` and `rect` (`(x, y, w, h)`). Containers have `add(*children)`, `insert(index, child)`, `remove(child)`, `replace(old, new)`, `clear()` and `children`; a `Panel` or `Popover` edits its body. `insert` and `replace` return the new child, `remove` the removed one, `clear` the container. Adding a child that has a parent moves it.
 
 ### Value components
 
@@ -82,6 +82,7 @@ App("Layout", (420, 400), pages, Tabs([("List", long_list), ("Empty", Label(""))
 | `NumberField` | `NumberField(label="", value=0.0, *, min=None, max=None, step=None, precision=None, integer=None, suffix="")` | Drag to scrub, arrows to step, click to type math. `suffix` is shown after the number (`" m"`, `"°"`). Member: `editing`. |
 | `NumberSlider` | `NumberSlider(label="", value=0.0, *, min=0.0, max=1.0, **kw)` | A number field that fills with the value. Takes `NumberField`'s other keywords. |
 | `TextField` | `TextField(label="", value="", *, placeholder="", icon=None, live=False)` | Single-line text with Blender's editing. `live=True` reports every keystroke; otherwise `on_change` runs when you confirm. Member: `editing`. |
+| `TextArea` | `TextArea(value="", *, rows=None)` | Multi-line text with Blender's editing, wheel scrolling and undo. `rows` is the natural height in lines (8 by default); `on_change` runs on every edit. Edit by byte offset with `ta_insert`, `ta_delete`, `ta_caret`, `ta_selection`, `ta_see`. Note: no `label` argument. |
 | `SearchField` | `SearchField(value="", *, placeholder="Search")` | A search box with a magnifier icon. Note: no `label` argument. |
 | `HotkeyField` | `HotkeyField(label="", value="")` | Click, then press a key combination; <Kbd>Esc</Kbd> cancels. Member: `capturing`. |
 | `Checkbox` | `Checkbox(label="", value=False)` | Drag across several to set them all. Member: `toggle()`. |
@@ -142,6 +143,7 @@ App("Gallery", (360, 380), Panel("Values",
 | `TreeView` | `TreeView(roots=(), *, rows=8, columns=(), on_toggle=None, on_rename=None)` | The outliner. The value is the selected `TreeItem`. `columns=("hide", "render")` adds toggle columns; `on_toggle(item, column, on)`. `on_rename(item, name)`. Members: `roots`, `row_count`, `rows_info`. |
 | `TreeItem` | `TreeItem(label, *children, icon=None, expanded=True, data=None, toggles=None)` | One row of a `TreeView`. `toggles={"hide": False}` sets its columns; `data` is yours. Members: `add(*items)`, `expanded`. |
 | `GridView` | `GridView(items=(), value=0, *, tile=4.0, rows=2.0, on_activate=None)` | Preview tiles. Items are `(label, preview)`, where `preview` is an icon name or an RGBA color. Double-click or <Kbd>Enter</Kbd>: `on_activate(index)`. Members: `items`, `tile_rect(i)`. |
+| `FileBrowser` | `FileBrowser(directory="", *, file="", mode="open", multiple=False, filters=(), button="", on_change=None, on_submit=None)` | Blender's File Browser in a layout (it fills its rect): bookmarks, path bar, sortable file list, execute bar. `mode` is `"open"`, `"save"` or `"directory"`; `filters` are `"Label\tpattern ..."` entries. `on_change(directory)` after a folder change, `on_submit(paths)` when chosen (`[]` when cancelled). Members: `directory`, `file`, `hidden`, `state`, `result`, `execute()`, `cancel()`, `refresh()`. |
 
 In lists and trees, arrow keys navigate, <Kbd>Left</Kbd> and <Kbd>Right</Kbd> collapse and expand (<Kbd>Shift</Kbd>+click an arrow for all children), and you can drag down a toggle column to set it on several rows.
 

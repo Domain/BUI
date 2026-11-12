@@ -59,7 +59,7 @@ Every component has:
 | `enabled` / `visible` | Properties, also constructor keywords |
 | `weight=` | Share of the width in a `Row` (`0` keeps the natural width) |
 | `x, y, w, h`, `rect` | Geometry after layout |
-| `add(*children)`, `remove(c)`, `children` | Tree editing (containers) |
+| `add(*children)`, `insert(i, c)`, `remove(c)`, `replace(old, new)`, `clear()`, `children` | Tree editing (containers, see [Editing children](#editing-children)) |
 
 Value components (`NumberField`, `NumberSlider`, `Checkbox`, `Toggle`,
 `TextField`, `Dropdown`, `EnumRow`, `ColorSwatch` ...) also have:
@@ -86,6 +86,23 @@ Value components (`NumberField`, `NumberSlider`, `Checkbox`, `Toggle`,
 | `ScrollView` | `ScrollView(child, height=None, rows=8)` | |
 | `VectorField` | `VectorField(label, (x, y, z), axes="XYZW", **number_kw)` | Aligned number fields; Alt edits all of them |
 
+### Editing children
+
+Containers change after they are built; the window relays out on the next
+frame. Each call works where `add` does, so a `Panel` or `Popover` edits its
+body:
+
+```python
+col = Column(Label("a"), Label("b"))
+col.insert(0, Label("first"))   # -> the inserted component; -1 or past the end appends
+col.replace(old, new)           # -> new, at old's place (ValueError if old is not a child)
+col.remove(c)                   # -> c, which can be added again
+col.clear()                     # -> col
+```
+
+Adding or inserting a component that already has a parent moves it. `Tabs`,
+`SideTabs` and `Split` take their pages and sides in the constructor.
+
 ## Values
 
 | Component | Signature |
@@ -93,6 +110,7 @@ Value components (`NumberField`, `NumberSlider`, `Checkbox`, `Toggle`,
 | `NumberField` | `NumberField(label, value, *, min=None, max=None, step=None, precision=None, integer=None, suffix="")` |
 | `NumberSlider` | `NumberSlider(label, value, *, min=0, max=1)` |
 | `TextField` | `TextField(label, value, *, placeholder="", icon=None, live=False)` |
+| `TextArea` | `TextArea(value="", *, rows=None)`: multi-line text; `rows` is the natural height in lines (8 by default); `on_change` on every edit; edit by byte offset with `ta_insert`, `ta_delete`, `ta_caret`, `ta_selection`, `ta_see` |
 | `SearchField` | `SearchField(value="", *, placeholder="Search")` |
 | `HotkeyField` | `HotkeyField(label, value)`: click, then press a key combination |
 | `Checkbox` | `Checkbox(label, value=False)` |
@@ -264,6 +282,24 @@ name = filebrowser.ask("save", defaultextension=".txt")
 
 `kind` is `"open"`, `"save"` or `"directory"`. Cancel returns `None`.
 `tkinter.filedialog` and `QFileDialog` use the same browser.
+
+The same browser is a component, `FileBrowser`, to put in any layout; it
+fills the rect it gets:
+
+```python
+from bui.components import FileBrowser
+
+browser = FileBrowser("~/renders", mode="open", filters=["Images\t*.png *.jpg"],
+                      on_change=lambda folder: print("now in", folder),
+                      on_submit=lambda paths: print(paths))   # [] when cancelled
+```
+
+| Member | |
+|---|---|
+| `FileBrowser(directory="", *, file="", mode="open", multiple=False, filters=(), button="", on_change=None, on_submit=None)` | `mode`: `"open"`, `"save"` or `"directory"`; `filters`: `"Label\tpattern ..."` entries (`filebrowser.tk_filters` converts tkinter's); `button` renames the execute button |
+| `directory`, `file`, `hidden` | The folder, the file name in the execute bar, hidden files shown |
+| `state`, `result` | 0 browsing, 1 chosen, -1 cancelled; the chosen paths |
+| `execute()`, `cancel()`, `refresh()` | Press Open / Save, Cancel; read the folder again |
 
 ## Headless use (tests, screenshots)
 
