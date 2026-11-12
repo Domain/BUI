@@ -224,6 +224,7 @@ area = Area("Geometry Node Editor", editor,
   - `links` are `(from_node, output, to_node, input)`.
   - `on_links(links)` runs after the user links, relinks or cuts.
   - `on_delete(nodes)` runs on X / Delete; without it, the editor removes the selected nodes itself.
+  - `height=` is the natural height in units (14 by default).
 - **Editing, as in Blender:**
   - click selects (Shift toggles); dragging moves the selection (Ctrl snaps);
   - dragging on empty space box-selects;

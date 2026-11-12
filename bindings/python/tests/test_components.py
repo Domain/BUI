@@ -1109,6 +1109,17 @@ def test_editing_children():
     d.frame()
 
 
+
+def test_node_editor_height():
+    from bui.components import Node, NodeEditor
+    u = buipy.kit_unit()
+    short = NodeEditor([Node("Value", outputs=[("Value", "float")])], height=8)
+    default = NodeEditor()
+    assert short.natural()[1] == 8 * u
+    assert default.natural()[1] == 14 * u
+    Driver(short, default, size=(500, 900))
+    assert short.h == 8 * u and default.h == 14 * u
+
 def main() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in tests:
