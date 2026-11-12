@@ -24,6 +24,7 @@ final class Window {
         void delegate(int id) timerHandler;
         bool delegate() closeHandler;
         void delegate() frameHandler;
+        void delegate(bool active) focusHandler;
         string title_;
     }
 
@@ -42,6 +43,7 @@ final class Window {
         callbacks.on_timer = &timerCallback;
         callbacks.on_close = &closeCallback;
         callbacks.on_frame = &frameCallback;
+        callbacks.on_focus = &focusCallback;
         BK_window_set_callbacks(handle, &callbacks);
     }
 
@@ -61,6 +63,7 @@ final class Window {
         timerHandler = null;
         closeHandler = null;
         frameHandler = null;
+        focusHandler = null;
     }
 
     /* -- callbacks --------------------------------------------------------- */
@@ -78,6 +81,11 @@ final class Window {
     /// Called right before a requested animation frame renders.
     void onFrame(void delegate() handler) {
         frameHandler = handler;
+    }
+
+    /// The window got (`true`) or lost (`false`) the keyboard focus.
+    void onFocus(void delegate(bool active) handler) {
+        focusHandler = handler;
     }
 
     /* -- window ------------------------------------------------------------ */
@@ -163,7 +171,7 @@ final class Window {
     }
 
     /// Window-manager request: "pos", "minsize", "resizable", "topmost",
-    /// "alpha", "state", "lift", ...
+    /// "alpha", "state", "transparent", "layer", "anchor", "lift", ...
     void wm(string key, double a = 0, double b = 0) {
         BK_window_wm(handle, cstr(key), a, b);
     }
@@ -206,6 +214,19 @@ final class Window {
         }
         try {
             self.frameHandler();
+        }
+        catch (Throwable) {
+            // See timerCallback.
+        }
+    }
+
+    private static extern(C) void focusCallback(void* data, BKWindow*, int active) {
+        auto self = cast(Window) data;
+        if (self is null || self.focusHandler is null) {
+            return;
+        }
+        try {
+            self.focusHandler(active != 0);
         }
         catch (Throwable) {
             // See timerCallback.

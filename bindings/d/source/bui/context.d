@@ -19,7 +19,7 @@ import bui.internal.callback : CallbackBox;
 import bui.internal.refs : ensureRefHooks;
 import bui.internal.util : cslice, cstr;
 import bui.kit;
-import bui.menu : MenuItem, menuPie = openPie, menuOpen = openMenu;
+import bui.menu : MenuItem, menuPie = openPie, menuOpen = openMenu, pieAtPointer;
 import bui.node : Node, wrapNode;
 import bui.raster : Raster;
 
@@ -184,9 +184,21 @@ final class Context {
         menuOpen(ctx(), owner is null ? null : owner.handle, items, title, x, y);
     }
 
-    /// Open a pie menu (at most eight rows are reachable).
-    void openPie(MenuItem[] items, string title = null) {
-        menuPie(ctx(), items, title);
+    /// Open a pie menu (at most eight rows are reachable), centered at window pixels x, y.
+    void openPie(MenuItem[] items,
+                 string title = null,
+                 int x = pieAtPointer,
+                 int y = pieAtPointer) {
+        menuPie(ctx(), items, title, x, y);
+    }
+
+    /// The interactive node under window pixels x, y, or null.
+    Node hitAt(int x, int y) {
+        auto c = ctx();
+        check();
+        auto node = wrapNode(BK_hit_at(c, x, y));
+        check();
+        return node;
     }
 
     /* -- input ------------------------------------------------------------- */

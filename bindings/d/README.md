@@ -292,10 +292,12 @@ context.openMenu(root, [
 ```
 
 The `MenuItem` helpers are `separator`, `check`, `submenu`, `shortcut_`,
-`icon_` and `disabled`. `Context.openPie` opens a pie menu;
-`Node.setMenu` fills a menu button. `Context.popup`, `popupCount`,
-`menuRowCount`, `menuRowText` and `menuRowRect` are there for tests and
-automation.
+`icon_` and `disabled`. `Context.openPie` opens a pie menu at the pointer, or
+at explicit window pixels (`openPie(items, title, x, y)`; `pieAtPointer` is the
+default for either coordinate). `Node.setMenu` fills a menu button.
+`Context.popup`, `popupCount`, `menuRowCount`, `menuRowText` and `menuRowRect`
+are there for tests and automation. `Context.hitAt(x, y)` returns the
+interactive node under a point.
 
 ## Images, video and canvas
 
@@ -362,13 +364,21 @@ Do this **before** creating a `Window`: the native window installs its own host
 that provides these services and forwards events to the handlers above.
 `Window` adds `show`, `close`, `setTitle`, `setSize`, `size`, `raster`,
 `setGpu`, `gpu`, `frames`, `renderNow`, `timer`, `requestFrame`,
-`cancelTimer`, `nativeHandle`, `wm`/`wmGet`, `onTimer`, `onClose` and
-`onFrame`. `run`, `pump`, `quit`, `wake`, `wakeInit`, `setStopCheck`,
+`cancelTimer`, `nativeHandle`, `wm`/`wmGet`, `onTimer`, `onClose`, `onFrame`
+and `onFocus`. `run`, `pump`, `quit`, `wake`, `wakeInit`, `setStopCheck`,
 `setKeepAlive` and `windowSupported` are module-level.
 
-`bui.theme` has `setScale`, `scale`, `unit`, `setFont`, `setTheme`,
-`themeName`, `themeColor`, `iconId`, `iconCount`, `iconName`,
-`iconListCount` and `iconListName`.
+`bui.theme` has `setScale`, `scale`, `setTextShadow`, `textShadow`, `unit`,
+`setFont`, `setFontSize`, `fontSizePoints`, `setTheme`, `themeName`,
+`themeColor`, `loadTheme`, `loadThemeFile`, `themeError`, `themeIgnored`,
+`themeCount`, `themeAt`, `setThemeColor`, `setThemeNum`, `themeNum`,
+`themeGeneration`, `themeMode`, `iconId`, `iconCount`, `iconName`,
+`iconListCount` and `iconListName`. Theme files use the JSON format in
+`docs/theming.md`; a custom theme becomes active with `setTheme(itsName)`.
+
+`Raster` adds `setAlpha`, `alpha` and `clear` for premultiplied transparent
+frames, alongside `setClip`, `damage`, `invalidate`, the drawing calls and the
+GPU attach/poll methods.
 
 ## Raw C API
 

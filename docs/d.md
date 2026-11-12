@@ -205,16 +205,16 @@ not wrap around floats.
 | --------------- | ------------------------------------------------------------------------------ |
 | `bui.node`      | `Node`, properties, geometry, events, images, video, ramps, curves, histograms |
 | `bui.context`   | `Context`, `Host`, input, rendering, popups, menus, undo, clipboard, IME       |
-| `bui.window`    | `Window`, `run`, `pump`, `quit`, timers, window-manager requests                |
+| `bui.window`    | `Window`, `run`, `pump`, `quit`, timers, focus, window-manager requests         |
 | `bui.menu`      | `MenuItem` descriptions for context, pie and menu-button menus                  |
-| `bui.raster`    | `Raster`: drawing primitives, damage, text, textures, GPU attach                |
+| `bui.raster`    | `Raster`: drawing, alpha, damage, text, textures, GPU attach                    |
 | `bui.image`     | `Image` decoding, generated images, probes, `Animation`                        |
 | `bui.video`     | `Video` playback, seeking, listeners and frame textures                        |
 | `bui.canvas`    | `CanvasItem` display lists on `canvas` nodes                                   |
 | `bui.tree`      | `TreeItem` rows and the `tree` node operations                                 |
 | `bui.textarea`  | Text and selection editing on `textarea` nodes                                 |
 | `bui.custom`    | `CustomHandlers` for host-drawn `custom` nodes                                 |
-| `bui.theme`     | Scale, font, Dark/Light themes, theme colors and Blender's icons               |
+| `bui.theme`     | Scale, fonts, text shadows, theme files, theme colors and Blender's icons      |
 | `bui.css`       | `Stylesheet`, `Style`, selectors, colours and CSS tokens                       |
 | `bui.html`      | `Element`, tag constructors, the user-agent sheet and `Document`               |
 | `bui.rsx`       | The compile-time `rsx!` markup mixin                                           |
@@ -329,9 +329,11 @@ context.openMenu(root, [
 
 `MenuItem.separator`, `MenuItem.check`, `MenuItem.submenu`, `shortcut_`,
 `icon_` and `disabled` build rows without a builder type. `Context.openPie`
-opens a pie menu (at most eight rows are reachable), and `Node.setMenu` fills a
-menu button. For tests, `popupCount`, `popup`, `popupOwner`, `menuRowCount`,
-`menuRowText` and `menuRowRect` inspect the open menu.
+opens a pie menu (at most eight rows are reachable) at the pointer or at
+explicit window pixels, `Context.hitAt` finds the interactive node under a
+point, and `Node.setMenu` fills a menu button. For tests, `popupCount`, `popup`,
+`popupOwner`, `menuRowCount`, `menuRowText` and `menuRowRect` inspect the open
+menu.
 
 ## Images, video and canvas
 

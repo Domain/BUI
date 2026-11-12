@@ -113,6 +113,22 @@ private void testRenderAndInput() {
     context.release(x, y, 0);
     check(clicks == 1, "click callback");
 
+    auto hit = context.hitAt(x, y);
+    bool inside = false;
+    for (auto node = hit; node !is null; node = node.parent()) {
+        if (node.handle is button.handle) {
+            inside = true;
+            break;
+        }
+    }
+    check(inside, "hit test");
+    check(context.hitAt(-50, -50) is null, "hit test miss");
+
+    check(!raster.alpha(), "raster alpha off");
+    raster.setAlpha(true);
+    check(raster.alpha(), "raster alpha on");
+    raster.clear(0, 0, 4, 4);
+
     context.clipboard("from D");
     check(context.clipboard() == "from D", "clipboard round-trip");
 
@@ -368,6 +384,38 @@ private void testTheme() {
     check(themeColor("regular.inner", color), "light theme color");
     check(setTheme("dark"), "restore dark theme");
 
+    const shadow = textShadow();
+    setTextShadow(!shadow);
+    check(textShadow() == !shadow, "text shadow");
+    setTextShadow(shadow);
+
+    const points = fontSizePoints();
+    setFontSize(12);
+    check(fontSizePoints() == 12.0f, "font size");
+    setFontSize(points);
+
+    const generation = themeGeneration();
+    check(loadTheme(`{"name":"D test","themes":[{"name":"D Test Dark","mode":"dark",
+          "colors":{"button.background":"#302d41"}}]}`) == 1, "load theme");
+    check(themeCount() > 0, "theme count");
+    check(themeAt(themeCount() - 1) == "D Test Dark", "theme at");
+    check(themeIgnored() >= 0, "theme ignored");
+    check(setTheme("D Test Dark"), "custom theme");
+    check(themeMode() == "dark", "theme mode");
+    check(themeGeneration() != generation, "theme generation");
+
+    float[4] custom;
+    check(themeColor("button.background", custom), "custom theme color");
+    check(setThemeColor("button.background", [0.2f, 0.4f, 0.6f, 1]), "set theme color");
+    check(themeColor("button.background", custom) && custom[0] > 0.19f && custom[0] < 0.21f,
+          "theme color update");
+    check(setThemeNum("button.roundness", 0.25), "set theme number");
+    double roundness;
+    check(themeNum("button.roundness", roundness) && roundness == 0.25, "theme number");
+
+    check(loadTheme("{") == -1 && themeError().length > 0, "theme load error");
+    check(setTheme("dark"), "restore dark theme");
+
     setScale(1);
     check(scale() == 1.0f, "scale");
     check(unit() > 0, "widget unit");
@@ -523,6 +571,8 @@ private void testRsx() {
 private void testCapi() {
     int major, minor, patch;
     bui_get_version(&major, &minor, &patch);
-    check(major == 0 && minor == 1 && patch == 0, "stable C API version");
-    check(cslice(bui_version_string()) == "BUI 0.1.0", "stable C API version string");
+    check(major == BUI_KIT_VERSION_MAJOR && minor == BUI_KIT_VERSION_MINOR &&
+          patch == BUI_KIT_VERSION_PATCH, "stable C API version");
+    check(cslice(bui_version_string()) == "BUI " ~ BUI_KIT_VERSION_STRING,
+          "stable C API version string");
 }

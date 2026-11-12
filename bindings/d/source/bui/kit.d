@@ -311,12 +311,14 @@ struct BKImeState {
 alias BKWindowTimerFn = extern(C) void function(void* data, BKWindow* win, int id);
 alias BKWindowCloseFn = extern(C) int function(void* data, BKWindow* win);
 alias BKWindowFrameFn = extern(C) void function(void* data, BKWindow* win);
+alias BKWindowFocusFn = extern(C) void function(void* data, BKWindow* win, int active);
 
 struct BKWindowCallbacks {
     void* data;
     BKWindowTimerFn on_timer;
     BKWindowCloseFn on_close;
     BKWindowFrameFn on_frame;
+    BKWindowFocusFn on_focus;
 }
 
 struct BKWidgetDraw {
@@ -350,11 +352,26 @@ void BK_set_ref_hooks(BKRefHookFn retain, BKRefHookFn release);
 /* -- global look ----------------------------------------------------------- */
 void BK_set_scale(float scale);
 float BK_scale();
+void BK_set_text_shadow(int on);
+int BK_text_shadow();
 int BK_unit();
 void BK_set_font(const(char)* family);
+void BK_set_font_size(float points);
+float BK_font_size_points();
 int BK_set_theme(const(char)* name);
 const(char)* BK_theme_name();
 int BK_theme_color(const(char)* key, float* r_rgba);
+int BK_theme_load_json(const(char)* json);
+int BK_theme_load_file(const(char)* path);
+const(char)* BK_theme_error();
+int BK_theme_ignored();
+int BK_theme_count();
+const(char)* BK_theme_at(int index);
+int BK_theme_set_color(const(char)* key, const(float)* rgba);
+int BK_theme_set_num(const(char)* key, double value);
+int BK_theme_num(const(char)* key, double* r_value);
+int BK_theme_generation();
+const(char)* BK_theme_mode();
 int BK_icon_id(const(char)* name);
 int BK_icon_count();
 const(char)* BK_icon_name(int id);
@@ -432,7 +449,9 @@ void BK_open_menu(BKContext* ctx,
                   const(char)* title,
                   int at_x,
                   int at_y);
-void BK_open_pie(BKContext* ctx, const(BKMenuSpec)* items, int n, const(char)* title);
+BKNode* BK_hit_at(BKContext* ctx, int x, int y);
+void BK_open_pie(
+    BKContext* ctx, const(BKMenuSpec)* items, int n, const(char)* title, int at_x, int at_y);
 
 /* -- geometry managers ----------------------------------------------------- */
 void BK_geom_set_manager(BKNode* child, int manager);

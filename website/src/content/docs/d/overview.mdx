@@ -5,7 +5,7 @@ description: A DUB package with a one-to-one raw C API, idiomatic D wrappers and
 section: D
 order: 10
 languages: ["d"]
-sources: ["bindings/d/README.md", "bindings/d/dub.json", "bindings/d/source/bui/node.d", "bindings/d/source/bui/context.d", "bindings/d/source/bui/window.d", "bindings/d/source/bui/html/realize.d", "bindings/d/source/bui/rsx.d", "bindings/d/tests/run.d", "docs/d.md"]
+sources: ["bindings/d/README.md", "bindings/d/dub.json", "bindings/d/source/bui/node.d", "bindings/d/source/bui/context.d", "bindings/d/source/bui/window.d", "bindings/d/source/bui/menu.d", "bindings/d/source/bui/raster.d", "bindings/d/source/bui/theme.d", "bindings/d/source/bui/html/realize.d", "bindings/d/source/bui/rsx.d", "bindings/d/tests/run.d", "docs/d.md"]
 ---
 
 **The `bindings/d` package gives D programs Blender's widget drawing, layout and interaction rules.** It is a DUB package with three layers: raw `extern(C)` declarations that match the C headers one to one, D classes and delegates for the common paths, and an HTML/CSS/RSX authoring layer. All of them come from `import bui;`.
@@ -93,16 +93,16 @@ context.release(r[0] + r[2] / 2, r[1] + r[3] / 2, 0);
 | -------------- | ------------------------------------------------------------------------------ |
 | `bui.node`     | `Node`, properties, geometry, events, images, video, ramps, curves, histograms |
 | `bui.context`  | `Context`, host services, input, rendering, popups, menus, undo, clipboard, IME |
-| `bui.window`   | `Window`, the event loop, timers and window-manager requests                    |
+| `bui.window`   | `Window`, the event loop, timers, focus and window-manager requests             |
 | `bui.menu`     | `MenuItem` descriptions for context menus, pie menus and menu buttons           |
-| `bui.raster`   | Drawing primitives, damage, text, textures and GPU attach                      |
+| `bui.raster`   | Drawing, alpha, damage, text, textures and GPU attach                           |
 | `bui.image`    | Shared-decoder images, generated pixels, probes and frame animation            |
 | `bui.video`    | Playback, seeking, listeners and frame textures                                |
 | `bui.canvas`   | `CanvasItem` display lists on `canvas` nodes                                   |
 | `bui.tree`     | `TreeItem` rows and the `tree` node operations                                 |
 | `bui.textarea` | Text and selection editing by UTF-8 byte offsets                               |
 | `bui.custom`   | Event, frame and draw callbacks for host-drawn `custom` nodes                   |
-| `bui.theme`    | Scale, font, Dark/Light themes, theme colors and Blender's icons               |
+| `bui.theme`    | Scale, fonts, text shadows, theme files, theme colors and Blender's icons      |
 | `bui.css`      | `Stylesheet`, `Style`, selectors, colours and tokens                           |
 | `bui.html`     | `Element`, tag constructors, the user-agent sheet and `Document`               |
 | `bui.rsx`      | The compile-time `rsx!` markup mixin                                           |
@@ -183,7 +183,7 @@ context.openMenu(root, [
 ]);
 ```
 
-`Context.openPie` opens a pie menu, and `Node.setMenu` fills a menu button. For tests, `popupCount`, `popup`, `popupOwner`, `menuRowCount`, `menuRowText` and `menuRowRect` inspect the open menu.
+`Context.openPie` opens a pie menu at the pointer or at explicit window pixels, `Context.hitAt` finds the interactive node under a point, and `Node.setMenu` fills a menu button. For tests, `popupCount`, `popup`, `popupOwner`, `menuRowCount`, `menuRowText` and `menuRowRect` inspect the open menu.
 
 `Image.load` decodes a file through the kit's shared decoders; `Image.fromRgba` builds pixels you generated. `Video` opens a file or URL and plays it on an `image` or `video` node or into a texture. `bui.canvas` adds `CanvasItem` rectangles, ovals, lines, text, images and video to a `canvas` node, with ids for replace, delete, insert and z-order.
 

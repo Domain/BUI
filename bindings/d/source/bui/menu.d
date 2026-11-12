@@ -114,12 +114,19 @@ void openMenu(
                  title.length ? cstr(title) : null, x, y);
 }
 
-/// Open a pie menu (at most eight rows are reachable).
-void openPie(BKContext* ctx, MenuItem[] items, string title = null) {
+/// The pie center is the pointer when `openPie` gets this for x or y.
+enum pieAtPointer = -100000;
+
+/// Open a pie menu (at most eight rows are reachable), centered at window pixels x, y.
+void openPie(BKContext* ctx,
+             MenuItem[] items,
+             string title = null,
+             int x = pieAtPointer,
+             int y = pieAtPointer) {
     if (ctx is null) {
         throw new BuiException("openPie", "no context");
     }
     auto tree = buildTree(items);
     BK_open_pie(ctx, tree.specs.ptr, cast(int) tree.specs.length,
-                title.length ? cstr(title) : null);
+                title.length ? cstr(title) : null, x, y);
 }

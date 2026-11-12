@@ -82,10 +82,11 @@ struct BuiGpuSink {
     extern(C) void function(void*) end_frame;
 }
 
-/// An X11 window for GPU attach: Display* and Window.
+/// An X11 window for GPU attach: Display*, Window and its VisualID (0: default).
 struct BuiGpuX11Window {
     void* display;
     c_ulong window;
+    c_ulong visual;
 }
 
 extern(C) {
@@ -103,6 +104,10 @@ const(uint32_t)* BUI_raster_pixels(const(BuiRaster)* r);
 
 int BUI_raster_damage(const(BuiRaster)* r, const(int[4])** r_rects);
 void BUI_raster_invalidate(BuiRaster* r);
+
+void BUI_raster_set_alpha(BuiRaster* r, int on);
+int BUI_raster_alpha(const(BuiRaster)* r);
+void BUI_raster_clear(BuiRaster* r, int x, int y, int w, int h);
 
 void BUI_raster_set_clip(BuiRaster* r, int x, int y, int w, int h);
 

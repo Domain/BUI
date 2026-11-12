@@ -80,6 +80,21 @@ final class Raster {
         BUI_raster_invalidate(handle);
     }
 
+    /// Keep alpha: frames become premultiplied 0xAARRGGBB. Set before a GPU renderer attaches.
+    void setAlpha(bool on) {
+        BUI_raster_set_alpha(handle, on ? 1 : 0);
+    }
+
+    /// Whether frames keep alpha.
+    bool alpha() const {
+        return BUI_raster_alpha(handle) != 0;
+    }
+
+    /// Set the pixels of a rect to transparent, within the clip.
+    void clear(int x, int y, int w, int h) {
+        BUI_raster_clear(handle, x, y, w, h);
+    }
+
     void setClip(int x, int y, int w, int h) {
         BUI_raster_set_clip(handle, x, y, w, h);
     }
