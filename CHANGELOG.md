@@ -7,6 +7,12 @@ All notable changes to **blenderui** (BUI). The format follows
 ## [Unreleased]
 
 ### Added
+- **LuaRocks:** `luarocks install blenderui`, then `require("bui")`. The rockspec (`bindings/lua/blenderui-<version>-1.rockspec`)
+  builds the C kit and the `_bui` module with CMake against the Lua that runs the rock (Lua 5.4) and installs them with
+  the `bui.lua` wrapper; the new CMake option `BUI_LUA_ROCK` builds only the module (nothing is fetched, no `bui-lua`
+  executable). CI builds and loads the rock on Linux and macOS (`luarocks` job in `ci.yml`); `release.yml` uploads the
+  rockspec on a tag (secret `LUAROCKS_API_KEY`), and `tools/bump_version.py`, `check_versions.py` and `release.py` move,
+  check and verify it with the other registries.
 - **Custom themes.** A theme file (JSON, in gpui-kit's shape, with Blender's own names for the colors) adds your
   own themes to Dark and Light: `bui.load_theme(path_or_text)`, `blenderui::load_theme` / `load_theme_file`,
   `app.loadTheme`, `bui.load_theme` (Lua), `BK_theme_load_file` / `BK_theme_load_json` (C), then `set_theme(name)`.

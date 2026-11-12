@@ -12,6 +12,7 @@
 #
 # One-time setup (repository Settings > Secrets and variables > Actions):
 #   CARGO_REGISTRY_TOKEN   a crates.io API token (scopes: publish-new, publish-update)
+#   LUAROCKS_API_KEY       a luarocks.org API key (luarocks.org > Settings > API keys), for the `luarocks` job
 # npm and PyPI need no secret: both use trusted publishing (OIDC). On npmjs.com, each of
 # @blender-ui/native, its platform packages (@blender-ui/native-<tag>, bindings/node/platform.js)
 # and @blender-ui/react lists this repository and the workflow file release.yml as its trusted
@@ -215,9 +216,43 @@ jobs:
             (cd "$dir" && npm publish $flags)
           done
 
+  luarocks:
+    name: LuaRocks
+    needs: [versions, ci]
+    if: ${{ !cancelled() && needs.versions.result == 'success' && (needs.ci.result == 'success' || needs.ci.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: leafo/gh-actions-lua@v10
+        with:
+          luaVersion: "5.4"
+      - uses: leafo/gh-actions-luarocks@v4
+      - name: Upload the rockspec (the rock is built from the tag by whoever installs it)
+        env:
+          LUAROCKS_API_KEY: ${{ secrets.LUAROCKS_API_KEY }}
+        run: |
+          rockspec=$(ls bindings/lua/blenderui-*.rockspec)
+          luarocks lint "$rockspec"
+          if [ "$PUBLISH" != true ]; then
+            echo "::notice::dry run: $rockspec is valid; not uploaded"
+            exit 0
+          fi
+          if [ -z "$LUAROCKS_API_KEY" ]; then
+            echo "::error::LUAROCKS_API_KEY is not set (docs/publishing.md, 'LuaRocks')"
+            exit 1
+          fi
+          version=$(basename "$rockspec" .rockspec)
+          version=${version#blenderui-}
+          if luarocks search --porcelain blenderui "$version" 2>/dev/null | grep -q "^blenderui[[:space:]]$version"; then
+            echo "::notice::blenderui $version is already on LuaRocks; skipping"
+            exit 0
+          fi
+          luarocks upload "$rockspec" --api-key="$LUAROCKS_API_KEY"
+
   github-release:
     name: GitHub Release
-    needs: [crates, npm]
+    needs: [crates, npm, luarocks]
     if: github.event_name == 'push' || github.event.inputs.publish == 'true'
     runs-on: ubuntu-latest
     permissions:

@@ -12,6 +12,17 @@ cmake --build build --target bui-lua
 
 The binary is `build/bindings/lua/bui-lua`.
 
+## Install with LuaRocks
+
+```sh
+luarocks install blenderui     # Lua 5.4; needs CMake and a C compiler
+lua -e 'local bui = require("bui"); print(bui.KIT_VERSION)'
+```
+
+The rock builds the C kit and the loadable module (`_bui`) from the release tag and installs it with the
+`bui.lua` wrapper. From a checkout: `luarocks make bindings/lua/blenderui-<version>-1.rockspec`.
+(The CMake option `BUI_LUA_ROCK=ON` is what the rockspec sets: the module only, against the Lua that runs it.)
+
 ## Usage
 
 ### Script mode
