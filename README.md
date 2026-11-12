@@ -1486,7 +1486,8 @@ SVG recorder use it. Guide: [INTEGRATION.md](INTEGRATION.md).
 
 A standalone executable and a loadable module that embeds Lua 5.4 and exposes the
 full BUI kit API — every widget, every event. Use the `bui-lua` binary or drop
-`bui.so`/`bui.dll` into any Lua 5.4, LuaJIT or LuaRocks install.
+`bui.so`/`bui.dll` into any Lua 5.4, LuaJIT or LuaRocks install, or
+`luarocks install blenderui`.
 
 ```sh
 cmake -S . -B build -DBUI_BUILD_LUA_BINDINGS=ON

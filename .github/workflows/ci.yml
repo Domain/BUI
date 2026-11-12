@@ -85,6 +85,34 @@ jobs:
         if: runner.os != 'Linux'
         run: ctest --test-dir build -C Release -R bui_lua --output-on-failure
 
+  # The LuaRocks package (bindings/lua/blenderui-<version>-1.rockspec): `luarocks make` builds the
+  # kit and the _bui module against the Lua that runs the rock, installs them, and `require("bui")` loads them.
+  luarocks:
+    name: luarocks install (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-15]
+    steps:
+      - uses: actions/checkout@v4
+      - name: X11 headers (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libx11-dev
+      - uses: leafo/gh-actions-lua@v10
+        with:
+          luaVersion: "5.4"
+      - uses: leafo/gh-actions-luarocks@v4
+      - name: Lint the rockspec
+        run: luarocks lint bindings/lua/blenderui-*.rockspec
+      - name: Build and install the rock
+        run: luarocks make bindings/lua/blenderui-*.rockspec
+      - name: require("bui") from the installed rock
+        run: |
+          cd "$RUNNER_TEMP"
+          lua -e 'local bui = require("bui"); assert(type(bui.Node) == "function" and type(bui.Context) == "function"); local a, b, c = bui.version(); assert(("%d.%d.%d"):format(a, b, c) == bui.KIT_VERSION); local n = bui.Node("frame"); assert(n); print("bui " .. bui.KIT_VERSION)'
+
   rust:
     name: cargo test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}

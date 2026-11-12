@@ -21,6 +21,8 @@ Where the version lives (one source of truth per registry, all moved together):
 * npm (only with `--npm`): every already-published package in `bindings/package.json`'s workspaces
   moves to the same version; a package not on npm yet keeps its own first version. All of them
   follow `@blender-ui/native` in their dependency range. npm versions are otherwise independent of the tag.
+* LuaRocks: `bindings/lua/blenderui-<version>-1.rockspec` (its version, its source tag and its file
+  name move; the old file is removed, as a rename).
 * `CHANGELOG.md`: `[Unreleased]` becomes a dated section and a fresh `[Unreleased]` opens.
 * The lock files (`Cargo.lock`, `bindings/package-lock.json`) are refreshed (best effort).
 
@@ -38,7 +40,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-from check_versions import npm_packages
+from check_versions import npm_packages, rockspecs
 
 ROOT = Path(__file__).resolve().parent.parent
 RUST = ROOT / "bindings" / "rust"
@@ -94,9 +96,10 @@ def on_npm(name: str) -> bool:
         raise
 
 
-def plan_edits(new: str, npm: str | None) -> dict[Path, str]:
-    """Every file's new text, keyed by path. Nothing is written here."""
+def plan_edits(new: str, npm: str | None) -> tuple[dict[Path, str], list[Path]]:
+    """Every file's new text, keyed by path, and the files that go away (a rename's old name). Nothing is written here."""
     edits: dict[Path, str] = {}
+    gone: list[Path] = []
 
     def put(path: Path, text: str) -> None:
         if text != read(path):
@@ -129,6 +132,15 @@ def plan_edits(new: str, npm: str | None) -> dict[Path, str]:
             out.append(line)
         put(toml, "".join(out))
 
+    # LuaRocks: the version is in the file name too, so the rockspec is renamed
+    (rock,) = rockspecs()
+    text = re.sub(r'(^version\s*=\s*")[^"]+(")', rf"\g<1>{new}-1\g<2>", read(rock), count=1, flags=re.M)
+    text = re.sub(r'(tag\s*=\s*"v)[^"]+(")', rf"\g<1>{new}\g<2>", text, count=1)
+    renamed = rock.with_name(f"blenderui-{new}-1.rockspec")
+    if renamed != rock:
+        edits[renamed] = text
+        gone.append(rock)
+
     if npm:
         # `npm` is patch, minor, major or X.Y.Z. Each already-published package moves by that kind
         # from its own version (native 0.3.0 -> 0.3.1, svelte 0.1.0 -> 0.1.1); a package that isn't
@@ -151,7 +163,7 @@ def plan_edits(new: str, npm: str | None) -> dict[Path, str]:
         today = datetime.date.today().isoformat()
         text = text.replace("## [Unreleased]", f"## [Unreleased]{nl}{nl}## [{new}] - {today}", 1)
         put(log, text)
-    return edits
+    return edits, gone
 
 
 def refresh_locks(npm: bool) -> list[Path]:
@@ -221,15 +233,19 @@ def main() -> int:
     new = next_version(cur, a.version)
     if new == cur:
         sys.exit(f"already at {cur}")
-    edits = plan_edits(new, a.npm)
+    edits, gone = plan_edits(new, a.npm)
     print(f"{cur} -> {new}" + (f"   (npm packages: {a.npm})" if a.npm else ""))
     for path in edits:
         print("  edit", path.relative_to(ROOT).as_posix())
+    for path in gone:
+        print("  remove", path.relative_to(ROOT).as_posix())
     if a.dry_run:
         return 0
     for path, text in edits.items():
         write(path, text)
-    touched = list(edits)
+    for path in gone:
+        path.unlink()
+    touched = list(edits) + gone
     if not a.no_lock:
         touched += refresh_locks(bool(a.npm))
 
