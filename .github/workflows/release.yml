@@ -228,6 +228,8 @@ jobs:
         with:
           luaVersion: "5.4"
       - uses: leafo/gh-actions-luarocks@v4
+      - name: A JSON library for `luarocks upload` (the action's LuaRocks needs one and installs none)
+        run: luarocks install dkjson
       - name: Upload the rockspec (the rock is built from the tag by whoever installs it)
         env:
           LUAROCKS_API_KEY: ${{ secrets.LUAROCKS_API_KEY }}

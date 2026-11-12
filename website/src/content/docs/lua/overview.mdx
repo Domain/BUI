@@ -28,7 +28,7 @@ luarocks install blenderui
 lua -e 'print(require("bui").KIT_VERSION)'
 ```
 
-The rock needs Lua 5.4, CMake and a C compiler. It builds the C kit and the `_bui` module from the release tag, and installs them with the `bui.lua` wrapper, so `require("bui")` works in any Lua 5.4 program. From a checkout, `luarocks make bindings/lua/blenderui-<version>-1.rockspec` does the same.
+The rock needs Lua 5.4, CMake and a C and C++20 compiler (on Linux also the X11 development headers, `libx11-dev` on Debian and Ubuntu or `libX11-devel` on Fedora: without them the kit has no native windows and `bui.Window` returns `nil`). It builds the C kit and the `_bui` module from the release tag, and installs them with the `bui.lua` wrapper, so `require("bui")` works in any Lua 5.4 program. From a checkout, `luarocks make bindings/lua/blenderui-<version>-1.rockspec` does the same.
 
 ## A first window
 

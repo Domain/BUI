@@ -15,7 +15,7 @@ description = {
   detailed = [[
     BUI is Blender's own UI toolkit, decoupled from Blender. This rock builds the C kit and the
     loadable module _bui, and installs it with the bui.lua wrapper: require("bui") gives every
-    widget and event, as bui-lua does. It builds with CMake and a C compiler; Lua 5.4 only.
+    widget and event, as bui-lua does. It builds with CMake and a C and C++20 compiler (on Linux with the X11 headers, for native windows); Lua 5.4 only.
   ]],
   homepage = "https://github.com/ppmpreetham/BUI",
   license = "GPL-2.0-or-later",

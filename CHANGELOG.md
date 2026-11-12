@@ -8,7 +8,7 @@ All notable changes to **blenderui** (BUI). The format follows
 
 ### Added
 - **LuaRocks:** `luarocks install blenderui`, then `require("bui")`. The rockspec (`bindings/lua/blenderui-<version>-1.rockspec`)
-  builds the C kit and the `_bui` module with CMake against the Lua that runs the rock (Lua 5.4) and installs them with
+  builds the C kit and the `_bui` module with CMake against the Lua that runs the rock (Lua 5.4; it needs CMake and a C and C++20 compiler, and on Linux the X11 headers for native windows) and installs them with
   the `bui.lua` wrapper; the new CMake option `BUI_LUA_ROCK` builds only the module (nothing is fetched, no `bui-lua`
   executable). CI builds and loads the rock on Linux and macOS (`luarocks` job in `ci.yml`); `release.yml` uploads the
   rockspec on a tag (secret `LUAROCKS_API_KEY`), and `tools/bump_version.py`, `check_versions.py` and `release.py` move,
