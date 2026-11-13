@@ -3,11 +3,11 @@
 -- SPDX-License-Identifier: GPL-2.0-or-later
 rockspec_format = "3.0"
 package = "blenderui"
-version = "0.5.0-1"
+version = "0.5.1-1"
 
 source = {
   url = "git+https://github.com/ppmpreetham/BUI.git",
-  tag = "v0.5.0",
+  tag = "v0.5.1",
 }
 
 description = {

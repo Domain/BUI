@@ -6,6 +6,8 @@ All notable changes to **blenderui** (BUI). The format follows
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-11-13
+
 ### Added
 - **LuaRocks:** `luarocks install blenderui`, then `require("bui")`. The rockspec (`bindings/lua/blenderui-<version>-1.rockspec`)
   builds the C kit and the `_bui` module with CMake against the Lua that runs the rock (Lua 5.4; it needs CMake and a C and C++20 compiler, and on Linux the X11 headers for native windows) and installs them with
