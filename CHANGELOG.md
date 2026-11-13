@@ -42,6 +42,7 @@ All notable changes to **blenderui** (BUI). The format follows
 - **Qt syntax:** `QMessageBox.information` / `question` / ... returned `Ok` or `Yes` without showing anything, and `QStackedWidget` was a plain `QWidget`; `QAbstractButton.setShortcut`, `QWidget.setFocusPolicy` and `QApplication.setApplicationName` did nothing. All work now, as do `setWindowFlags` (stay on top), `setMinimumSize` / `setMaximumSize`, `setFocus`, `setMaxLength`, `setValidator`, `setPageStep`, `setTracking`, `setDefault` / `setFlat`, `setFrameShape` and the scroll area's vertical bar policy, which were accepted and ignored.
 - **Qt syntax:** setting a value from code emitted nothing: `setValue` (sliders, spin boxes), `QComboBox.setCurrentIndex`, `QLineEdit.setText` and `setChecked` on check boxes and radio buttons now emit `valueChanged`, `currentIndexChanged`, `textChanged` and `toggled` / `stateChanged` when the value changes, as Qt does, and a radio button turned off by its sibling says so. A click on the checked button of an exclusive group no longer unchecks it; a button or action removed from a group or menu and added again no longer fires twice; `Ctrl++` showed as `Ctrl` in menus; an integer spin box accepted `3.5`.
 - **Qt syntax:** `QSpinBox` was a `QAbstractSlider`; it is a `QAbstractSpinBox` now. Spin box `suffix()`, `decimals()` and `placeholderText()` read back empty.
+- **tkinter:** a vertical `ttk.Separator` drew a horizontal line in a tall box.
 
 ## [0.5.1] - 2026-11-13
 
@@ -127,7 +128,6 @@ All notable changes to **blenderui** (BUI). The format follows
   reads the setting when it starts.
 
 ### Fixed
-- **tkinter:** a vertical `ttk.Separator` drew a horizontal line in a tall box.
 - **Crash at exit on Wayland:** `exit` on another thread closed libwayland-client while the event loop still called into
   it (SIGSEGV in about 1 of 15 benchmark exits). The library now stays loaded until the process ends.
 - **X11 frame pacing:** an animation frame is due one refresh after the previous frame started, so the render time is part
