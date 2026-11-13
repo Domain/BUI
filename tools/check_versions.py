@@ -2,10 +2,10 @@
 
     python tools/check_versions.py v0.2.0
 
-The Python package, the Rust workspace and the Rust crates' path dependencies share one
-version (the tag). The npm packages are versioned on their own (the native addon can get a
-patch release the Rust crates don't), so they are only listed, not compared; the release
-workflow skips an npm version that is already published.
+The Python package, the Rust workspace, the Rust crates' path dependencies, the DUB package
+and its raw version constants share one version (the tag). The npm packages are versioned on
+their own (the native addon can get a patch release the Rust crates don't), so they are only
+listed, not compared; the release workflow skips an npm version that is already published.
 """
 
 import json
@@ -16,6 +16,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 LUA = ROOT / "bindings" / "lua"
 RUST = ROOT / "bindings" / "rust"
+D = ROOT / "bindings" / "d"
 
 
 def read(path: Path) -> str:
@@ -59,6 +60,16 @@ def main() -> int:
     found[f"bindings/lua/{rocks[0].name} (file name)"] = re.fullmatch(r"blenderui-(.+)-\d+\.rockspec", rocks[0].name).group(1)
     found["bindings/lua rockspec: version"] = re.search(r'^version\s*=\s*"([^"]+)-\d+"', rock, re.M).group(1)
     found["bindings/lua rockspec: source tag"] = re.search(r'tag\s*=\s*"v([^"]+)"', rock).group(1)
+
+    # the DUB package and its hand-written copies of the kit version
+    found["bindings/d/dub.json"] = json.loads(read(D / "dub.json"))["version"]
+    dkit = read(D / "source" / "bui" / "kit.d")
+    dparts = [re.search(rf"enum BUI_KIT_VERSION_{p}\s*=\s*(\d+);", dkit) for p in ("MAJOR", "MINOR", "PATCH")]
+    dstring = re.search(r'enum BUI_KIT_VERSION_STRING\s*=\s*"([^"]+)";', dkit)
+    if not all(dparts) or not dstring:
+        sys.exit("bindings/d/source/bui/kit.d: the BUI_KIT_VERSION_* constants are missing or malformed")
+    found["bindings/d/source/bui/kit.d (numbers)"] = ".".join(p.group(1) for p in dparts)
+    found["bindings/d/source/bui/kit.d (string)"] = dstring.group(1)
 
     # the published crates name their siblings with an exact version
     for crate in ("blenderui", "blenderui-macros", "blenderui-imgui", "blenderui-table", "blenderui-vlist", "blenderui-paint"):

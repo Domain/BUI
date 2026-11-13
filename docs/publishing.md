@@ -94,8 +94,8 @@ for more.
 
 The two steps it runs, if you want them by hand: `tools/bump_version.py` changes every version in one go
 (the Python package, the Rust workspace and the sibling dependency versions of every crate, the LuaRocks rockspec
-(renamed to the new version), the changelog, the lock files, and with `--npm` the npm packages) and runs
-`tools/check_versions.py` on the result:
+(renamed to the new version), the DUB package and its `kit.d` version constants, the changelog, the lock files, and
+with `--npm` the npm packages) and runs `tools/check_versions.py` on the result:
 
 ```sh
 python tools/bump_version.py minor --commit --push   # 0.2.0 -> 0.3.0, commits only those files, pushes main
@@ -113,9 +113,10 @@ is the same thing: `git tag v0.3.0 && git push origin v0.3.0`.
 | `wheels.yml` | the Python wheels and sdist to PyPI (trusted publishing, no secret) |
 | `release.yml` | the Rust crates to crates.io, `@blender-ui/native` and `@blender-ui/react` to npm, and a GitHub Release |
 
-`release.yml` first checks that the tag matches the Python and Rust versions
+`release.yml` first checks that the tag matches the Python, Rust and D versions
 (`python tools/check_versions.py v0.2.0` runs the same check by hand; the C header's
-`BUI_KIT_VERSION_*` macros are part of it) and that `THIRD_PARTY_NOTICES.md` is up to date
+`BUI_KIT_VERSION_*` macros and the DUB package's copies are part of it) and that
+`THIRD_PARTY_NOTICES.md` is up to date
 (`python tools/gen_notices.py` regenerates it when a dependency changes), then runs the whole
 `ci.yml` suite on every platform, then publishes. A version that is already on a registry is
 skipped (crates.io, npm and PyPI alike: `wheels.yml` builds nothing when PyPI already has the
