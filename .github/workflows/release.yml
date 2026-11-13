@@ -266,7 +266,7 @@ jobs:
             echo "::notice::blenderui $version is already on LuaRocks; skipping"
             exit 0
           fi
-          luarocks upload "$rockspec" --api-key="$LUAROCKS_API_KEY"
+          luarocks upload "$rockspec" --api-key="$LUAROCKS_API_KEY" --skip-pack
 
   github-release:
     name: GitHub Release
