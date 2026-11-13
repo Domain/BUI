@@ -247,6 +247,12 @@ jobs:
             owner="${GITHUB_REPOSITORY_OWNER,,}"
             code=$(curl -s -o /dev/null -w '%{http_code}' "https://luarocks.org/m/$owner")
             [ "$code" = 200 ] || echo "::warning::luarocks.org has no account named $owner (HTTP $code): tools/release.py looks for the rock there"
+            # `luarocks upload --dry-run` validates and packs without publishing, in the LuaRocks versions that have it
+            if luarocks upload --help 2>&1 | grep -q -- '--dry-run'; then
+              luarocks upload "$rockspec" --api-key="$LUAROCKS_API_KEY" --dry-run
+            else
+              echo "::warning::this LuaRocks has no 'upload --dry-run'; only the rockspec and the key were checked"
+            fi
             echo "::notice::dry run: $rockspec is valid and the API key is accepted; not uploaded"
             exit 0
           fi
