@@ -1110,6 +1110,36 @@ def test_editing_children():
 
 
 
+def test_editing_review_fixes():
+    from bui.components import Node, NodeEditor
+    # replace(): an earlier sibling takes old's place, not the slot after it
+    a, b, c, d_ = Label("a"), Label("b"), Label("c"), Label("d")
+    col = Column(a, b, c, d_)
+    col.replace(c, a)
+    assert [n.get_str("text") for n in col.children] == ["b", "a", "d"]
+    # a NodeEditor follows every way of editing its children, and its links follow their nodes
+    n1, n2, n3 = (Node(t, outputs=[("o", "float")], inputs=[("i", "float")]) for t in "xyz")
+    ed = NodeEditor([n1, n2], links=[(n1, 0, n2, 0)])
+    ed.add(n3)
+    assert ed.nodes == [n1, n2, n3] and ed.links == [(n1, 0, n2, 0)]
+    first = Node("w", inputs=[("i", "float")])
+    ed.insert(0, first)                                   # every index moves up by one
+    assert ed.nodes == [first, n1, n2, n3] and ed.links == [(n1, 0, n2, 0)]
+    ed.remove(first)
+    assert ed.nodes == [n1, n2, n3] and ed.links == [(n1, 0, n2, 0)]
+    other = Node("v", outputs=[("o", "float")], inputs=[("i", "float")])
+    ed.replace(n3, other)
+    assert ed.nodes == [n1, n2, other]
+    ed.remove(n1)                                         # a link to a removed node goes with it
+    assert ed.nodes == [n2, other] and ed.links == []
+    assert ed.clear() is ed and ed.nodes == [] and ed.links == []
+    # a TextArea written with the text it holds keeps its selection
+    from bui.components import TextArea
+    ta = TextArea("hello")
+    ta.set_value("hello")
+    assert ta.value == "hello"
+
+
 def test_node_editor_height():
     from bui.components import Node, NodeEditor
     u = buipy.kit_unit()

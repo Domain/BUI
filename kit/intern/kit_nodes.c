@@ -1185,7 +1185,10 @@ static void editor_free(BKNode *e)
 static void editor_measure(BKNode *e, int *rw, int *rh)
 {
   *rw = 20 * u();
-  *rh = e->height_units > 0 ? (int)(e->height_units * u()) : 14 * u(); /* "height" in units */
+  /* "height" in units; unset, not a number (the test is false for NaN) or negative: 14. Capped so the
+   * float-to-int conversion stays defined. */
+  const float h = e->height_units;
+  *rh = h > 0.0f ? (int)((h > 1000.0f ? 1000.0f : h) * u()) : 14 * u();
 }
 
 static void editor_arrange(BKNode *e)

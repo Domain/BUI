@@ -131,7 +131,9 @@ class Component(buipy.KitNode):
     def replace(self, old: "Component", new: "Component") -> "Component":
         """Put ``new`` where the child ``old`` is."""
         content = self._content()
-        index = next((i for i, c in enumerate(content.children) if c is old), None)
+        # `new` leaves its old place first when it is already a child, so count without it
+        kids = [c for c in content.children if c is not new]
+        index = next((i for i, c in enumerate(kids) if c is old), None)
         if index is None:
             raise ValueError("replace(): old is not a child of this component")
         buipy.KitNode.remove(content, old)

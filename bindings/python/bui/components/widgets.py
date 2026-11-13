@@ -385,7 +385,8 @@ class TextArea(ValueComponent):
     def _store(self, v, notify):
         text = "" if v is None else str(v)
         changed = text != self._load()
-        self.set("value", text)  # the kit's textarea has no "set_value": it notifies here
+        if changed:  # setting it again would clear the selection and the spans
+            self.set("value", text)  # the kit's textarea has no "set_value": it notifies here
         if notify and changed and self.on_change is not None:
             self.on_change(text)
 

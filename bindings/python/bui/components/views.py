@@ -263,7 +263,9 @@ class FileBrowser(Component):
 
     @directory.setter
     def directory(self, path: str) -> None:
-        self.set("dir", os.path.expanduser(os.fspath(path)))
+        path = os.path.expanduser(os.fspath(path))
+        if path != self.directory:  # navigating always reports a change
+            self.set("dir", path)
 
     @property
     def file(self) -> str:

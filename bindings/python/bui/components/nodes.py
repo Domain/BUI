@@ -155,16 +155,63 @@ class NodeEditor(Component):
     def nodes(self) -> list:
         return list(self._nodes)
 
+    # `_nodes` mirrors the children, and a link names nodes by their index, so every way of editing
+    # the children (add, insert, remove, replace, clear) goes through here and re-encodes the links
+    def _relink(self, links) -> None:
+        self.links = [l for l in links if l[0] in self._nodes and l[2] in self._nodes]
+
+    def add(self, *components):
+        links = self.links
+        for c in components:
+            if c in self._nodes:
+                self._nodes.remove(c)  # adding a child again moves it to the end
+        self._nodes.extend(components)
+        result = super().add(*components)
+        self._relink(links)
+        return result
+
+    def insert(self, index: int, component):
+        links = self.links
+        if component in self._nodes:
+            self._nodes.remove(component)  # it moves
+        result = super().insert(index, component)
+        n = len(self._nodes)
+        self._nodes.insert(n if index < 0 or index > n else index, component)
+        self._relink(links)
+        return result
+
+    def remove(self, component):
+        links = self.links
+        if component in self._nodes:
+            self._nodes.remove(component)
+        super().remove(component)
+        self._relink(links)
+        return component
+
+    def replace(self, old, new):
+        links = self.links
+        if new in self._nodes:
+            self._nodes.remove(new)  # it moves into old's place
+        slot = self._nodes.index(old)  # ValueError for a non-child, as Component.replace
+        result = super().replace(old, new)
+        self._nodes[slot] = new
+        self._relink(links)
+        return result
+
+    def clear(self):
+        self._nodes.clear()
+        super().clear()
+        self.links = []
+        return self
+
     def add_node(self, node: Node) -> Node:
-        self._nodes.append(node)
         self.add(node)
         return node
 
     def remove_node(self, node: Node) -> None:
-        links = [l for l in self.links if l[0] is not node and l[2] is not node]
-        self._nodes.remove(node)
+        if node not in self._nodes:
+            raise ValueError("remove_node(): node is not in this editor")
         self.remove(node)
-        self.links = links
 
     @property
     def links(self) -> list:
