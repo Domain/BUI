@@ -237,7 +237,23 @@ jobs:
           rockspec=$(ls bindings/lua/blenderui-*.rockspec)
           luarocks lint "$rockspec"
           if [ "$PUBLISH" != true ]; then
-            echo "::notice::dry run: $rockspec is valid; not uploaded"
+            # a dry run checks what a real upload needs, short of uploading: the key and the account
+            if [ -z "$LUAROCKS_API_KEY" ]; then
+              echo "::error::LUAROCKS_API_KEY is not set (docs/publishing.md, 'LuaRocks')"
+              exit 1
+            fi
+            code=$(curl -s -o /dev/null -w '%{http_code}' "https://luarocks.org/api/1/$LUAROCKS_API_KEY/status")
+            [ "$code" = 200 ] || { echo "::error::luarocks.org does not accept LUAROCKS_API_KEY (HTTP $code)"; exit 1; }
+            owner="${GITHUB_REPOSITORY_OWNER,,}"
+            code=$(curl -s -o /dev/null -w '%{http_code}' "https://luarocks.org/modules/$owner")
+            [ "$code" = 200 ] || echo "::warning::luarocks.org has no account named $owner (HTTP $code): tools/release.py looks for the rock there"
+            # `luarocks upload --dry-run` validates and packs without publishing, in the LuaRocks versions that have it
+            if luarocks upload --help 2>&1 | grep -q -- '--dry-run'; then
+              luarocks upload "$rockspec" --api-key="$LUAROCKS_API_KEY" --dry-run
+            else
+              echo "::warning::this LuaRocks has no 'upload --dry-run'; only the rockspec and the key were checked"
+            fi
+            echo "::notice::dry run: $rockspec is valid and the API key is accepted; not uploaded"
             exit 0
           fi
           if [ -z "$LUAROCKS_API_KEY" ]; then
