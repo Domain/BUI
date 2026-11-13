@@ -7,6 +7,16 @@ All notable changes to **blenderui** (BUI). The format follows
 ## [Unreleased]
 
 ### Added
+- **Python components:** `TextArea(value="", *, rows=None)` puts the kit's multi-line `textarea` in `bui.components`
+  (`value`, `set_value`, `on_change` on every edit; the node's `ta_*` methods edit by byte offset), and
+  `FileBrowser(directory, *, file, mode, multiple, filters, button, on_change, on_submit)` embeds Blender's File
+  Browser in any layout (`directory`, `file`, `hidden`, `state`, `result`, `execute()`, `cancel()`, `refresh()`);
+  `bui.filebrowser.ask` now builds its window from the same component. Every component can edit its children after
+  it is built: `insert(index, child)`, `remove(child)`, `replace(old, new)` and `clear()`, working where `add` does
+  (a `Panel` or `Popover` edits its body). This is what a renderer that keeps a live tree in sync with a changing
+  description (for example an A2UI surface) needs.
+- **Node editor height:** the `nodeeditor` node's natural height follows its `"height"` (units; 14 when unset)
+  instead of always 14 units, and `NodeEditor(height=...)` sets it.
 - **D bindings** (`bindings/d`): a DUB package with raw `extern(C)` declarations for the whole kit, GPU and stable C API, plus idiomatic wrappers for nodes, contexts, windows, menus, rasters, images, video, canvases, trees, text areas, custom nodes and themes. The kit is built through CMake from `preBuildCommands`, ownership follows the Python binding's reference-hook model, and `dub run --config=test` covers the wrappers, raw API, events, menus and host errors end to end. Examples: `hello.d` and `headless.d`.
 - **D HTML, CSS and RSX** (`bindings/d`): `bui.html` adds an `Element` tree and tag constructors, `bui.css` a selector cascade with a practical CSS subset, and `bui.rsx` a compile-time `rsx!` mixin that lowers markup and `{expression}` values to `Element` calls. `Document` realises the styled tree as kit nodes with flex, grid and table layout, widgets, dynamic `:hover`/`:active` states through `Element.setState` and `Document.restyle`, and in-place text updates through `Element.setText`. Tag constructors use `body_`, `template_`, `object_` and `select_` where D or the existing API already uses the name; markup keeps the HTML spelling. `dub run --config=rsx` opens the new example, and `--config=test` covers the cascade, realiser and RSX. The D wrappers also follow the kit's current header: focus callbacks, `Context.hitAt`, custom theme files, text shadows, font size and transparent rasters.
 

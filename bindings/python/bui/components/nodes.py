@@ -138,12 +138,14 @@ class NodeEditor(Component):
 
     TYPE = "nodeeditor"
 
-    def __init__(self, nodes: Sequence[Node] = (), *, links: Sequence = (),
+    def __init__(self, nodes: Sequence[Node] = (), *, links: Sequence = (), height: float = None,
                  on_links: Optional[Callable[[list], None]] = None,
                  on_delete: Optional[Callable[[list], None]] = None, **kw):
         super().__init__(**{k: v for k, v in kw.items()
                             if k in ("description", "enabled", "visible", "weight", "fill")})
         self.on_links, self.on_delete = on_links, on_delete
+        if height:  # natural height in units (default 14)
+            self.set("height", float(height))
         self._nodes: list = []
         for n in nodes:
             self.add_node(n)

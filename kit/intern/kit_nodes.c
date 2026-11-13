@@ -1185,7 +1185,7 @@ static void editor_free(BKNode *e)
 static void editor_measure(BKNode *e, int *rw, int *rh)
 {
   *rw = 20 * u();
-  *rh = 14 * u();
+  *rh = e->height_units > 0 ? (int)(e->height_units * u()) : 14 * u(); /* "height" in units */
 }
 
 static void editor_arrange(BKNode *e)
