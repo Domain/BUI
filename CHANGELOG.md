@@ -33,6 +33,7 @@ All notable changes to **blenderui** (BUI). The format follows
   `replace(old, new)` puts an earlier sibling in `old`'s place, not the slot after it; `FileBrowser.directory = same_folder` no longer
   navigates (and calls `on_change`) again; a `TextArea` written with the text it already holds keeps its selection and spans.
 - **Node editor height:** an infinite, huge or not-a-number `"height"` no longer overflows the float-to-int conversion (capped at 1000 units; unset or invalid is 14).
+- **D bindings**: `[attr*=x]` no longer crashes on a value shorter than `x`; `onKey` fires once per key press; `grid-template-columns: 1fr 1fr` counts two tracks; `Image.fromRgba` rejects negative strides; `TreeItem.add` rejects cycles and items that already have a parent; a `Window` stays rooted until freed and `Context.free()` throws while a window uses it; in `Document`, radios sharing a `name` are exclusive, number inputs are no longer clamped at 0, column flex containers no longer share a row between buttons, button labels use descendant text, hidden table rows are skipped and `rowspan` reserves its columns.
 
 ## [0.5.1] - 2026-11-13
 
