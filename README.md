@@ -9,7 +9,7 @@
     BUI
   </h1>
 
-**Blender's user interface, as a library you can use from Python, Rust, JavaScript (React, Svelte, Vue), C, C++ and Dear ImGui.**
+**Blender's user interface, as a library you can use from Python, Rust, JavaScript (React, Svelte, Vue), C, C++, D and Dear ImGui.**
 
 People spent decades building and optimizing Blender's GUI. It's battery and memory efficient, and super duper fast. We decoupled it, to give everyone a chance to build their own products with it. It supports multiple languages and frameworks, so you won't miss a beat!
 
@@ -190,6 +190,7 @@ all get the same widgets and interactions:
 | **JavaScript / React / Svelte / Vue** on Node.js or Bun: a DOM-like API, JSX, Svelte or Vue components                                                   | The same engine and components in native windows, over napi-rs; React's hooks backed by signals; Svelte 5 and Vue 3 components                  | Working               |
 | **Dear ImGui** from C++, C, Python or Rust                                                                                                               | The real Dear ImGui on BUI windows in Blender's theme, or a build where ImGui's widgets _are_ Blender's widgets                                 | Working               |
 | **C** (`BUI_kit.h`)                                                                                                                                      | The kit itself: nodes, widgets, windows                                                                                                         | Working               |
+| **D** (the `bui` DUB package in `bindings/d`)                                                                                                            | Idiomatic D wrappers, the complete raw C API and an HTML/CSS/RSX authoring layer                                                                                                | Working               |
 | **MyGo**                                                                                                                                                 | MyGo                                                                                                                                            | Not yet (coming soon) |
 
 Not sure which to pick? If you already have code, use the row that matches it.
@@ -1503,7 +1504,8 @@ SVG recorder use it. Guide: [INTEGRATION.md](INTEGRATION.md).
 
 A standalone executable and a loadable module that embeds Lua 5.4 and exposes the
 full BUI kit API — every widget, every event. Use the `bui-lua` binary or drop
-`bui.so`/`bui.dll` into any Lua 5.4, LuaJIT or LuaRocks install.
+`bui.so`/`bui.dll` into any Lua 5.4, LuaJIT or LuaRocks install, or
+`luarocks install blenderui`.
 
 ```sh
 cmake -S . -B build -DBUI_BUILD_LUA_BINDINGS=ON
@@ -1570,6 +1572,7 @@ All 26 run headless (`bui-lua --headless app.lua`) for CI and documentation scre
 | [Dear ImGui](docs/imgui.md)                        | Dear ImGui on BUI from C++, C, Python and Rust; the Blender-widgets build; coverage                                                  |
 | [C API](docs/c-api.md)                             | The C kit (`BUI_kit.h`)                                                                                                              |
 | [Lua](bindings/lua/README.md)                      | Standalone `bui-lua` or loadable module; every widget, tree view, file browser, node editor                                          |
+| [D](bindings/d/README.md)                          | DUB package: raw kit declarations, D wrappers, HTML/CSS/RSX, ownership, examples and the integration suite                                         |
 | [Integration](INTEGRATION.md)                      | Embedding BUI drawing in C, C++, Qt or PySide hosts                                                                                  |
 | [Architecture](ARCHITECTURE.md)                    | Modules and what was taken from Blender                                                                                              |
 | [Syntax coverage](SYNTAX_COVERAGE.md)              | The Qt and tkinter surface, exactly                                                                                                  |
@@ -1979,6 +1982,7 @@ export PYTHONPATH=$PWD/bindings/python      # Windows: set PYTHONPATH=%CD%\bindi
 python examples/components_demo.py
 
 cd bindings/rust && cargo test              # Rust: CSS, Tailwind, rsx!, hooks, effects, headless windows
+cd bindings/d && dub run --config=test      # D: raw kit, wrappers, HTML/CSS/RSX, menus, canvas, trees
 ```
 
 | Option                      | Default                  | What it does                                                                                        |
@@ -2032,6 +2036,7 @@ How each was counted: [Coverage](https://bui.preetham.top/docs/reference/coverag
 | `bindings/python/`                                      | The `buipy` extension and the `bui` / `blenderui` packages (tkinter, Qt, components, ImGui)                                                                                                                                                                                                                                                                                                                                                     |
 | `bindings/rust/`                                        | `blenderui`, `blenderui-sys`, `blenderui-macros`, `blenderui-tailwind`, `blenderui-imgui`, `blenderui-jsview`, `blenderui-node`, `blenderui-qjs`, and the benchmark                                                                                                                                                                                                                                                                             |
 | `bindings/node/`, `bindings/react/`, `bindings/svelte/`, `bindings/vue/` | `@blender-ui/native`, `@blender-ui/react`, `@blender-ui/svelte` and `@blender-ui/vue`                                                                                                                                                                                                                                                                                                                                                                              |
+| `bindings/d/`                                           | The `bui` DUB package: raw `extern(C)` declarations, D wrappers, HTML/CSS/RSX, examples and the integration suite                                                                                                                                                                                                                                                                                                                                             |
 | `bindings/imgui/`                                       | Dear ImGui (vendored), the BUI backend, Blender style, the C API and its generator, the Blender-widgets build                                                                                                                                                                                                                                                                                                                                   |
 | `backends/qt/`                                          | C++ Qt/QPainter render-sink backend                                                                                                                                                                                                                                                                                                                                                                                                             |
 | `bench/`                                                | The start time and battery benchmark; `bench/images/` (decoders, thumbnail grid)                                                                                                                                                                                                                                                                                                                                                                |
@@ -2062,6 +2067,9 @@ How each was counted: [Coverage](https://bui.preetham.top/docs/reference/coverag
 | [`bindings/react/examples/counter.jsx`](bindings/react/examples/counter.jsx)                                                                                                                                                  | React in JSX (`bun examples/counter.jsx`)                                                                                                                                                                                                                       |
 | [`bindings/vue/examples/Counter.vue`](bindings/vue/examples/Counter.vue)                                                                                      | Vue 3 (`node --import ./bindings/vue/register.js bindings/vue/examples/counter.js`)                                                                                                                                                                             |
 | [`bindings/svelte/examples/Counter.svelte`](bindings/svelte/examples/Counter.svelte)                                                                          | Svelte 5 (`node --import ./bindings/svelte/register.js bindings/svelte/examples/counter.js`)                                                                                                                                                                    |
+| [`bindings/d/examples/hello.d`](bindings/d/examples/hello.d)                                                                                                  | D: a slider and a button in a native window                                                                                                                                                                                                                     |
+| [`bindings/d/examples/headless.d`](bindings/d/examples/headless.d)                                                                                            | D: render, click and inspect pixels without a window                                                                                                                                                                                                            |
+| [`bindings/d/examples/rsx_page.d`](bindings/d/examples/rsx_page.d) | D: an HTML/CSS page from `rsx!` in a native window |
 | Lua (27 in [`bindings/lua/examples/`](bindings/lua/examples/))                                                                                               | 27 examples covering every BUI widget type: `hello.lua`, `counter.lua`, `forms.lua`, `gallery.lua`, `split.lua`, `grid.lua`, `box.lua`, `dashboard.lua`, `textarea.lua`, `enum.lua`, `listview.lua`, `data_table.lua`, `menus.lua`, `menubar.lua`, `popover.lua`, `color_picker.lua`, `ramp.lua`, `curve.lua`, `histogram.lua`, `canvas.lua`, `anim.lua`, `todos.lua`, `filebrowser_demo.lua`, `image_viewer.lua`, `editor_screenshot.lua`, `lua_table_editor.lua`, `ph_nutrients.lua` |
 
 ---
