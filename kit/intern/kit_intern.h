@@ -397,6 +397,7 @@ enum {
   NF_ACTIVE_DEFAULT = 1 << 26, /* buttons: UI_BUT_ACTIVE_DEFAULT (drawn with the select colors) */
   NF_DEFAULT_SET = 1 << 27, /* `defval` was set: by "default", or by the first "value" a widget got */
   NF_BARE = 1 << 28,        /* "bare": an HTML text field with no frame (CSS `border-style: none`) */
+  NF_SELECT = 1 << 29,      /* "select": held selected by the host (UI_SELECT: a checked push button) */
 };
 
 #define BK_HTML(n) (((n)->flags & NF_HTML) != 0)
