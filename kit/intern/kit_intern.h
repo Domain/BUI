@@ -329,6 +329,7 @@ typedef struct BKClass {
   int (*leave)(BKNode *n);
   int (*key)(BKNode *n, BKEvent *e);
   int (*key_up)(BKNode *n, BKEvent *e); /* a key release, sent to the top popup */
+  void (*popup_pick)(BKNode *n, void *data); /* a menu this node opened: the picked item's `data` */
   int (*wheel)(BKNode *n, BKEvent *e);
   int (*cursor_at)(BKNode *n, int x, int y);
   void (*finish_edit)(BKNode *n, bool confirm);

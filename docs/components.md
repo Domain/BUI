@@ -219,7 +219,12 @@ area = Area("Geometry Node Editor", editor,
   - `inputs` are `(name, type)` or `(name, type, value)`; a value draws a field while the input is unlinked.
   - `outputs` are `(name, type)`, and types color the sockets.
   - `kind` picks the header color (`input`, `output`, `shader`, `texture`, `color`, `vector`, `converter`, `geometry`, `group` …), or pass `color=`.
-  - `on_change(node, what, value)` reports `location`, `select`, `value` and `collapsed`.
+  - `controls` put widgets in the node's body, between the outputs and the inputs, as Blender's node buttons do:
+    `("button", "Run")`, `("checkbox", "Wireframe", True)` and `("dropdown", "Mode", ["Fast", "Exact"], 0)`
+    (label, options, chosen index). `control_value(i)` reads one: `None` for a button, a `bool` for a checkbox, the
+    option's index for a dropdown.
+  - `on_change(node, what, value)` reports `location`, `select`, `value`, `collapsed` and `control` (the value is
+    `(index, value)` of the control that was pressed or changed).
 - **`NodeEditor`**:
   - `links` are `(from_node, output, to_node, input)`.
   - `on_links(links)` runs after the user links, relinks or cuts.
