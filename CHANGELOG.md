@@ -7,6 +7,13 @@ All notable changes to **blenderui** (BUI). The format follows
 ## [Unreleased]
 
 ### Added
+- **Controls inside node-editor nodes** (issue #38): a node can hold a push button, a checkbox and a dropdown in its body,
+  between the outputs and the inputs, as Blender's node buttons do (`node_update_basis_buttons`, `draw_buttons`). The kit's
+  node items take `"b|Label"`, `"c|Label|0 or 1"` and `"d|Label|index|Option;Option"`; a press or change is a node
+  `BK_EV_CHANGE` with `a = 5` and `b` the control's index. Python: `Node(..., controls=[("button", "Run"),
+  ("checkbox", "Wireframe", True), ("dropdown", "Mode", ["Fast", "Exact"], 0)])`, `node.control_value(i)` and
+  `on_change(node, "control", (i, value))`. A class can now take the item picked from a menu it opened (`popup_pick`).
+  Arbitrary child layouts in a node are not done yet.
 - **Python components:** `TextArea(value="", *, rows=None)` puts the kit's multi-line `textarea` in `bui.components`
   (`value`, `set_value`, `on_change` on every edit; the node's `ta_*` methods edit by byte offset), and
   `FileBrowser(directory, *, file, mode, multiple, filters, button, on_change, on_submit)` embeds Blender's File
