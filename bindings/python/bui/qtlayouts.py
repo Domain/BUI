@@ -493,14 +493,23 @@ class QGridLayout(QLayout):
         self._minimum = ({}, {})  # row -> minimum height, column -> minimum width
         self._origin = Qt.TopLeftCorner
 
-    def addWidget(self, w, row=0, column=0, rowspan=1, columnspan=1, alignment=0):  # noqa: N802
-        self._append(w, (int(row), int(column), int(rowspan), int(columnspan), alignment))
+    @staticmethod
+    def _cell(row, column, rest, alignment):
+        """Qt's overloads: (row, column, alignment=0) and (row, column, rowSpan, columnSpan, alignment=0):
+        a single argument after the column is the alignment, never a span."""
+        if len(rest) == 1:
+            return int(row), int(column), 1, 1, rest[0]
+        span = (list(rest) + [1, 1])[:2]
+        return int(row), int(column), int(span[0]), int(span[1]), rest[2] if len(rest) > 2 else alignment
 
-    def addLayout(self, layout, row=0, column=0, rowspan=1, columnspan=1, alignment=0):  # noqa: N802
-        self._append(layout, (int(row), int(column), int(rowspan), int(columnspan), alignment))
+    def addWidget(self, w, row=0, column=0, *rest, alignment=0):  # noqa: N802
+        self._append(w, self._cell(row, column, rest, alignment))
 
-    def addItem(self, item, row=0, column=0, rowspan=1, columnspan=1, alignment=0):  # noqa: N802
-        self._append(item._w, (int(row), int(column), int(rowspan), int(columnspan), alignment))
+    def addLayout(self, layout, row=0, column=0, *rest, alignment=0):  # noqa: N802
+        self._append(layout, self._cell(row, column, rest, alignment))
+
+    def addItem(self, item, row=0, column=0, *rest, alignment=0):  # noqa: N802
+        self._append(item._w, self._cell(row, column, rest, alignment))
 
     def _placed(self, w, place):
         row, column, rowspan, columnspan, alignment = place

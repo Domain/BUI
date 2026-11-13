@@ -493,13 +493,16 @@ class QStandardItemModel(QAbstractItemModel):
         return self._root.takeChild(row, column)
 
     def setRowCount(self, n):  # noqa: N802
+        n = max(0, int(n))  # Qt ignores negative counts
         while self._root.rowCount() > n:
             self._root.removeRow(self._root.rowCount() - 1)
         while self._root.rowCount() < n:
             self._root.appendRow([QStandardItem("") for _ in range(max(1, self.columnCount()))])
 
     def setColumnCount(self, n):  # noqa: N802
-        self._columns = int(n)
+        self._columns = max(0, int(n))
+        for row in self._root._rows:  # reducing the columns drops the extra cells
+            del row[self._columns:]
         self.layoutChanged.emit()
 
     def clear(self):

@@ -76,10 +76,15 @@ class RangeMore:
         self.set("step", 1.0)
 
     def setRange(self, lo, hi):  # noqa: N802
+        old = self.value()
         self.set("min", float(lo))
         self.set("max", float(hi))
         if getattr(type(self), "rangeChanged", None) is not None:
             self.rangeChanged.emit(lo, hi)
+        # the value is clamped into the new range, and valueChanged says so, as Qt does
+        self.set("set_value", min(max(float(old), float(lo)), float(hi)))
+        if self.value() != old:
+            self._value_changed()
 
     def setMinimum(self, v):  # noqa: N802
         self.setRange(v, max(v, self.maximum()))

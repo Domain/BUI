@@ -404,7 +404,8 @@ class QWidgetMore:
     def startTimer(self, interval, *a):  # noqa: N802
         from bui.qtsyntax import _timers
         timers = self.__dict__.setdefault("_qtimers", {})
-        timer_id = max(timers, default=0) + 1
+        timer_id = self.__dict__.get("_qtimer_last", 0) + 1  # never reused: a stale fire can't hit a new timer
+        self.__dict__["_qtimer_last"] = timer_id
         timers[timer_id] = int(interval)
 
         def fire():

@@ -6,8 +6,10 @@ SPDX-License-Identifier: GPL-2.0-or-later
 """
 
 import configparser
+import contextlib
 import os
 import sys
+import tempfile
 
 from bui import host
 from bui.qtsyntax import QWidget, Signal
@@ -95,8 +97,16 @@ class QSettings:
             p.set(section, rest.replace("/", "\\"), self._data[key])
         try:
             os.makedirs(os.path.dirname(self._file) or ".", exist_ok=True)
-            with open(self._file, "w", encoding="utf-8") as f:
-                p.write(f, space_around_delimiters=False)  # width=640, as Qt writes it
+            # write beside the target then swap, so a failed write never truncates the settings
+            fd, tmp = tempfile.mkstemp(dir=os.path.dirname(self._file) or ".", suffix=".tmp")
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
+                    p.write(f, space_around_delimiters=False)  # width=640, as Qt writes it
+                os.replace(tmp, self._file)
+            except BaseException:
+                with contextlib.suppress(OSError):
+                    os.unlink(tmp)
+                raise
             self._status = self.NoError
         except OSError:
             self._status = self.AccessError
@@ -310,7 +320,8 @@ class QShortcut:
         ctx = getattr(win, "_ctx", None)
         combo = self._key._combo()
         if ctx is not None and combo and (id(ctx), combo) not in self._bound:
-            ctx.bind(combo, self._fire)
+            # the kit has no unbind: a stale combo (after setKey) is left bound but stops firing
+            ctx.bind(combo, lambda combo=combo: self._key._combo() == combo and self._fire())
             self._bound.add((id(ctx), combo))
 
     def key(self):

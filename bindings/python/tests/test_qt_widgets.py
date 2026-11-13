@@ -933,6 +933,49 @@ def test_dates_and_times():
     assert c.selectedDate() == q.QDate(2024, 3, 5), "the selection moves into the range"
     render(c, 360, 300)
 
+def test_review_fixes():
+    m = q.QStandardItemModel(3, 3)
+    m.setRowCount(-1)
+    assert m.rowCount() == 0, "a negative count is clamped to 0, and does not hang"
+    m.setRowCount(2)
+    m.setColumnCount(2)
+    assert m.columnCount() == 2 and all(len(r) == 2 for r in m.invisibleRootItem()._rows), "extra cells dropped"
+
+    s = q.QSpinBox()
+    s.setRange(0, 100)
+    s.setValue(50)
+    got = spy(s.valueChanged)
+    s.setRange(0, 10)
+    assert s.value() == 10 and got == [(10,)], "the value is clamped into the new range, with a signal"
+
+    w = q.QWidget()
+    a = w.startTimer(1000)
+    w.killTimer(a)
+    assert w.startTimer(1000) != a, "timer ids are never reused"
+
+    g = q.QGridLayout()
+    g.addWidget(q.QLabel("x"), 1, 2, q.Qt.AlignRight)
+    assert g._items[0][1][:4] == (1, 2, 1, 1) and g._items[0][1][4] == q.Qt.AlignRight, "4th arg is the alignment"
+    g.addWidget(q.QLabel("y"), 0, 0, 2, 3)
+    assert g._items[1][1][2:4] == (2, 3)
+
+    e = q.QLineEdit()
+    e.setEchoMode(q.QLineEdit.Password)
+    assert e.echoMode() == q.QLineEdit.Password
+
+    with tempfile.TemporaryDirectory() as d:
+        path = os.path.join(d, "a.ini")
+        st = q.QSettings(path, q.QSettings.IniFormat)
+        st.setValue("k", 1)
+        st.sync()
+        assert os.listdir(d) == ["a.ini"], "no temp file left behind"
+        assert str(q.QSettings(path, q.QSettings.IniFormat).value("k")) == "1"
+
+    sc = q.QShortcut(q.QKeySequence("Ctrl+K"), q.QWidget(), lambda: None)
+    sc.setKey(q.QKeySequence("Ctrl+J"))
+    assert sc.key() == q.QKeySequence("Ctrl+J")
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

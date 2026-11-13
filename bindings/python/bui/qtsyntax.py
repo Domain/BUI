@@ -1594,10 +1594,21 @@ class QLineEdit(LineEditMore, QWidget):
     def setReadOnly(self, b):  # noqa: N802
         self.set("enabled", not b)
 
+    Normal, NoEcho, Password, PasswordEchoOnEdit = 0, 1, 2, 3
+    _ECHO_MASK = {NoEcho: " ", Password: "•", PasswordEchoOnEdit: "•"}  # the kit's mask character
+
     def setEchoMode(self, m):  # noqa: N802
+        m = int(m)
+        self.__dict__["_echo"] = m
+        self.set("mask", self._ECHO_MASK.get(m, ""))
+
+    def echoMode(self):  # noqa: N802
+        return self.__dict__.get("_echo", self.Normal)
+
+    def setClearButtonEnabled(self, b):  # noqa: N802
         pass
 
-    setClearButtonEnabled = setAlignment = setEchoMode
+    setAlignment = setClearButtonEnabled
 
     def keyPressEvent(self, e):  # noqa: N802
         pass

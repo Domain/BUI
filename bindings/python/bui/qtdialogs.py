@@ -261,7 +261,7 @@ class QMessageBox(_Standard, QDialog):
         if esc is not None and self._clicked is None:
             self._clicked = esc
             self.setResult(self.standardButton(esc))
-        super()._close_requested()
+        return super()._close_requested()
 
     # -- the static helpers --------------------------------------------------------------------------------
     @classmethod
@@ -408,6 +408,7 @@ class QInputDialog(QDialog):
     @classmethod
     def getText(cls, parent, title, label, echo=0, text="", *a, **kw):  # noqa: N802
         d = cls._run(parent, title, label, cls.TextInput)
+        d._text.setEchoMode(echo)
         d.setTextValue(text)
         ok = bool(d.exec())
         return (d.textValue() if ok else "", ok)
@@ -437,4 +438,4 @@ class QInputDialog(QDialog):
         d.setComboBoxItems(items)
         d._items.setCurrentIndex(int(current))
         ok = bool(d.exec())
-        return (d.textValue() if ok else (str(items[current]) if items else ""), ok)
+        return (d.textValue() if ok else (str(items[current]) if 0 <= current < len(items) else ""), ok)
