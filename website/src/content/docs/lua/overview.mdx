@@ -64,6 +64,58 @@ registry refs retained by the kit for as long as any copy of their item lives
 items are replaced or the node/context is freed. See `examples/menus.lua` and
 `examples/menubar.lua`.
 
+## Canvas
+
+A `canvas` node holds items drawn in paint order — rectangles, ovals, lines,
+polygons, text, arcs, images, rounded rectangles and GPU effects — as plain
+tables: `canvas_set` inserts or replaces by `id`, `canvas_add` appends,
+`canvas_put(i, item)` and `canvas_truncate(n)` rebuild the list each frame,
+`canvas_delete(id)` and `canvas_raise(id, to_top)` reorder. Image items take
+`rgba` (copied), `imbuf` / `video` (borrowed) or `src` (a file, decoded through
+the cache at the box size, fitted by `fit`).
+
+`bui.effect_create(name, source, n_inputs, n_floats)` compiles an application
+pixel shader (one portable `vec4 effect(vec2 p)` dialect, `U[i]` floats,
+`input_color(i, texel)` textures) that a `bui.ITEM_EFFECT` item runs on the GPU
+renderers in paint order; `bui.effect_error(id)` is the compile log and the
+item's `src`/`rgba`/`imbuf`/`video` is drawn where the GPU cannot run it.
+
+## Custom nodes
+
+A `custom` node hands input, animation frames and drawing to the script.
+`custom_set{natural_w, natural_h, on_event, on_frame, on_draw, on_free}`;
+`on_event(self, e)` gets a table (`type` = `bui.CUSTOM_PRESS`,
+`bui.CUSTOM_MOTION`, `bui.CUSTOM_KEY`, ... and `x, y, button, mods, clicks,
+wheel_x, wheel_y, text, keysym`) and returns true when it used the event;
+`on_frame(self)` runs before a render; `on_draw(self, raster, x, y, w, h)`
+draws with `bui.draw_widget(raster, spec)` — one of Blender's widgets
+(`bui.WIDGET_BUTTON`, `bui.WS_HOVER`, `bui.CORNERS_ALL`, ...), the same drawing
+the kit's own nodes use. `win:raster()` is the same handle, `win:pixel(x, y)`
+reads it back.
+
+## Images, video and animation
+
+`bui.image_decode` / `bui.image_load` / `bui.image_from_rgba` /
+`bui.image_from_argb` make ImBufs; `imbuf:texture()` puts a frame in a GPU
+texture (for effect inputs). `bui.Video(src)` plays with sound;
+`video:set_listener(fn)` hears every state change and
+`video:texture(tex, max_w, max_h)` is its current frame. `bui.Anim(bytes)`
+steps a GIF or animated WebP one frame at a time at the size it is drawn.
+
+## Beyond the widgets
+
+`bui.set_font_size(points)`, `bui.set_text_shadow(on)`, `bui.text_width(text)`;
+`bui.theme_mode()`, `bui.theme_generation()` and a theme's own keys through
+`bui.theme_color(key)` / `bui.theme_value(key)`;
+`bui.file_dialog{title, mode, dir, file, filters, multiple}` runs Blender's
+File Browser in its own native window until answered;
+`bui.recent_searches_enable/clear/load/save`; the IME through
+`ctx:ime_event` / `ctx:ime_state` / `ctx:ime_composing` (Blender's composition
+model, so shortcuts keep working with a CJK keyboard); `ctx:configure(w, h)`
+and `node:ctx()`; and for hosts with their own threads, `bui.wake_init(fn)`,
+`bui.wake()`, `bui.set_keep_alive(on)` and `bui.set_stop_check(fn)`. Windows
+take `on_close`, `on_frame`, `on_focus` and `on_timer`.
+
 ## Animation
 
 `bui.gsap` and `bui.motion` are GSAP's and Motion's APIs on the kit's animation engine, the one every BUI language uses. A call's tables are read once, into the engine, and a frame runs no Lua unless you gave a callback such as `onUpdate`.

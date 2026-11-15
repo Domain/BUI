@@ -19,6 +19,7 @@ static const char *g_numeric_keys[] = {
   "x", "y", "w", "h",
   "html", "editable",
   "weight", "scroll", "tile", "current", "default",
+  "low", "high", "optimum",
   NULL
 };
 
@@ -313,6 +314,285 @@ static int l_set_font(lua_State *L) {
   return 0;
 }
 
+static int l_set_font_size(lua_State *L) {
+  BK_set_font_size((float)luaL_checknumber(L, 1));
+  return 0;
+}
+
+static int l_font_size(lua_State *L) {
+  lua_pushnumber(L, BK_font_size_points());
+  return 1;
+}
+
+static int l_set_text_shadow(lua_State *L) {
+  BK_set_text_shadow(lua_toboolean(L, 1));
+  return 0;
+}
+
+static int l_text_shadow(lua_State *L) {
+  lua_pushboolean(L, BK_text_shadow());
+  return 1;
+}
+
+/* The width of `s` in the UI font at bui.scale(), in pixels. */
+static int l_text_width(lua_State *L) {
+  size_t len;
+  const char *s = luaL_checklstring(L, 1, &len);
+  lua_pushnumber(L, BK_text_width(s, (int)len));
+  return 1;
+}
+
+static int l_theme_mode(lua_State *L) {
+  lua_pushstring(L, BK_theme_mode());
+  return 1;
+}
+
+static int l_theme_generation(lua_State *L) {
+  lua_pushinteger(L, BK_theme_generation());
+  return 1;
+}
+
+/* Keys of the last theme load that BUI has no field for (they are still the theme's own
+ * and read back by theme_color/theme_value). */
+static int l_theme_ignored(lua_State *L) {
+  lua_pushinteger(L, BK_theme_ignored());
+  return 1;
+}
+
+/* Whether new native windows use the GPU (BUI_GPU=1 also sets it). */
+static int l_set_gpu_default(lua_State *L) {
+  BUI_gpu_set_default(lua_toboolean(L, 1));
+  return 0;
+}
+
+static int l_gpu_default(lua_State *L) {
+  lua_pushboolean(L, BUI_gpu_default());
+  return 1;
+}
+
+/* bui.effect_create(name, source, [n_inputs], [n_floats]): a GPU pixel shader for canvas
+ * effect items (canvas_set {type = bui.ITEM_EFFECT, effect = id, ...}). The source is one
+ * GLSL-like `vec4 effect(vec2 p)`. The id, or 0 for bad arguments; nothing compiles until
+ * a GPU frame draws it. Free with bui.effect_free(id). */
+static int l_effect_create(lua_State *L) {
+  const char *name = luaL_checkstring(L, 1);
+  size_t len;
+  const char *src = luaL_checklstring(L, 2, &len);
+  if (len == 0 || len > BK_EFFECT_MAX_SOURCE) { lua_pushinteger(L, 0); return 1; }
+  int n_inputs = (int)luaL_optinteger(L, 3, 0);
+  int n_floats = (int)luaL_optinteger(L, 4, 0);
+  lua_pushinteger(L, BK_effect_create(name, src, n_inputs, n_floats));
+  return 1;
+}
+
+static int l_effect_free(lua_State *L) {
+  BK_effect_free((int)luaL_checkinteger(L, 1));
+  return 0;
+}
+
+/* bui.effect_error(id): the compile/link log of the last GPU attempt ("" when fine or not
+ * tried yet), or nil for an id that is not live. */
+static int l_effect_error(lua_State *L) {
+  const char *log = BK_effect_error((int)luaL_checkinteger(L, 1));
+  if (log) lua_pushstring(L, log);
+  else lua_pushnil(L);
+  return 1;
+}
+
+/* bui.draw_widget(raster, spec): one of Blender's widgets drawn straight into a
+ * raster (a window's win:raster(), or a custom node's on_draw handle) — the same
+ * drawing the kit's own nodes use, for other toolkits drawing Blender's widgets.
+ * spec: {kind, state, corners = 15, align = -1, rect = {x, y, w, h},
+ *        clip = {x0, y0, x1, y1}, text_rect = {x, y, w, h}, value,
+ *        color = {r, g, b, a}, aux = {a, b, c, d}, text, text2}. */
+static void opt_float4(lua_State *L, int tbl, const char *key, float r_val[4], float dflt) {
+  lua_getfield(L, tbl, key);
+  if (lua_istable(L, -1)) {
+    for (int i = 0; i < 4; i++) {
+      lua_rawgeti(L, -1, i + 1);
+      r_val[i] = (float)luaL_optnumber(L, -1, dflt);
+      lua_pop(L, 1);
+    }
+  }
+  lua_pop(L, 1);
+}
+
+static int l_draw_widget(lua_State *L) {
+  BuiRaster *r = (BuiRaster *)lua_touserdata(L, 1);
+  if (!r) return luaL_error(L, "draw_widget: expected a raster (win:raster())");
+  luaL_checktype(L, 2, LUA_TTABLE);
+  BKWidgetDraw w;
+  memset(&w, 0, sizeof(w));
+  lua_getfield(L, 2, "kind");    w.kind = (int)luaL_optinteger(L, -1, 0); lua_pop(L, 1);
+  lua_getfield(L, 2, "state");   w.state = (int)luaL_optinteger(L, -1, 0); lua_pop(L, 1);
+  lua_getfield(L, 2, "corners"); w.corners = (int)luaL_optinteger(L, -1, BK_CORNERS_ALL); lua_pop(L, 1);
+  lua_getfield(L, 2, "align");   w.align = (int)luaL_optinteger(L, -1, -1); lua_pop(L, 1);
+  lua_getfield(L, 2, "value");   w.value = (float)luaL_optnumber(L, -1, 0); lua_pop(L, 1);
+  opt_float4(L, 2, "rect", w.rect, 0);
+  opt_float4(L, 2, "clip", w.clip, 0);
+  opt_float4(L, 2, "text_rect", w.text_rect, 0);
+  opt_float4(L, 2, "color", w.color, 0);
+  opt_float4(L, 2, "aux", w.aux, 0);
+  lua_getfield(L, 2, "text");    w.text = lua_tostring(L, -1); lua_pop(L, 1);
+  lua_getfield(L, 2, "text2");   w.text2 = lua_tostring(L, -1); lua_pop(L, 1);
+  BK_draw_widget(r, &w);
+  return 0;
+}
+
+/* bui.texture_free(tex): free a BUI_texture made by imbuf:texture / video:texture. */
+static int l_texture_free(lua_State *L) {
+  BUI_texture_free((int)luaL_checkinteger(L, 1));
+  return 0;
+}
+
+/* bui.file_dialog{title, mode, dir, file, filters, multiple}: Blender's File Browser in
+ * its own native window until answered. mode: 0 open, 1 save, 2 directory.
+ * filters: one "Label\tpattern pattern" per entry. Returns the chosen paths (an empty
+ * table when cancelled), or nil with no window host. */
+static int l_file_dialog(lua_State *L) {
+  luaL_checktype(L, 1, LUA_TTABLE);
+  lua_getfield(L, 1, "title");
+  const char *title = lua_tostring(L, -1);
+  lua_pop(L, 1);
+  lua_getfield(L, 1, "mode");
+  int mode = (int)luaL_optinteger(L, -1, 0);
+  lua_pop(L, 1);
+  lua_getfield(L, 1, "dir");
+  const char *dir = lua_tostring(L, -1);
+  lua_pop(L, 1);
+  lua_getfield(L, 1, "file");
+  const char *file = lua_tostring(L, -1);
+  lua_pop(L, 1);
+  lua_getfield(L, 1, "multiple");
+  int multiple = lua_toboolean(L, -1);
+  lua_pop(L, 1);
+
+  /* The filter and option strings must stay on the stack (reachable) across the call. */
+  const char **filters = NULL;
+  int nfilters = 0;
+  lua_getfield(L, 1, "filters");
+  if (lua_istable(L, -1)) {
+    nfilters = (int)lua_rawlen(L, -1);
+    if (nfilters > 0) {
+      int tbl = lua_gettop(L);
+      filters = (const char **)lua_newuserdata(L, (size_t)nfilters * sizeof(char *));
+      for (int i = 0; i < nfilters; i++) {
+        lua_rawgeti(L, tbl, i + 1); /* the string stays: it backs filters[i] */
+        filters[i] = lua_tostring(L, -1);
+      }
+    }
+  }
+
+  char **paths = NULL;
+  const int n = BK_file_dialog(title, mode, dir, file, filters, nfilters, multiple, &paths);
+  lua_settop(L, 1); /* drop the filters table, its userdata and the filter strings */
+  if (n < 0) { lua_pushnil(L); return 1; }
+  lua_createtable(L, n, 0);
+  for (int i = 0; i < n; i++) {
+    lua_pushstring(L, paths[i]);
+    lua_rawseti(L, -2, i + 1);
+  }
+  BK_file_dialog_free(paths);
+  return 1;
+}
+
+static int l_recent_searches_enable(lua_State *L) {
+  BK_recent_searches_enable(lua_toboolean(L, 1));
+  return 0;
+}
+
+static int l_recent_searches_clear(lua_State *L) {
+  (void)L;
+  BK_recent_searches_clear();
+  return 0;
+}
+
+static int l_recent_searches_load(lua_State *L) {
+  BK_recent_searches_load(luaL_checkstring(L, 1));
+  return 0;
+}
+
+static int l_recent_searches_save(lua_State *L) {
+  BK_recent_searches_save(luaL_checkstring(L, 1));
+  return 0;
+}
+
+/* Waking the window loop from other threads (a UI thread driven by another runtime).
+ * The callback runs on the loop's thread, so calling Lua from it is safe. */
+static int g_wake_ref = LUA_NOREF;
+
+static void window_wake_cb(void) {
+  lua_State *L = luabui_module_state();
+  if (!L || g_wake_ref == LUA_NOREF) return;
+  int top = lua_gettop(L);
+  lua_rawgeti(L, LUA_REGISTRYINDEX, g_wake_ref);
+  if (!lua_isfunction(L, -1)) {
+    lua_settop(L, top);
+    return;
+  }
+  if (lua_pcall(L, 0, 0, 0) != LUA_OK) luabui_report_error(L);
+  lua_settop(L, top);
+}
+
+/* bui.wake_init(fn): fn runs on the loop's thread when bui.wake() is called from another. */
+static int l_wake_init(lua_State *L) {
+  if (g_wake_ref != LUA_NOREF) {
+    luaL_unref(L, LUA_REGISTRYINDEX, g_wake_ref);
+    g_wake_ref = LUA_NOREF;
+  }
+  if (lua_isfunction(L, 1)) {
+    lua_pushvalue(L, 1);
+    g_wake_ref = luaL_ref(L, LUA_REGISTRYINDEX);
+  }
+  lua_pushboolean(L, BK_window_wake_init(window_wake_cb));
+  return 1;
+}
+
+static int l_wake(lua_State *L) {
+  (void)L;
+  BK_window_wake();
+  return 0;
+}
+
+static int l_set_keep_alive(lua_State *L) {
+  BK_window_set_keep_alive(lua_toboolean(L, 1));
+  return 0;
+}
+
+/* bui.set_stop_check(fn): fn() is polled after each message of bui.run(); true leaves it. */
+static int g_stop_ref = LUA_NOREF;
+
+static int window_stop_check(void) {
+  lua_State *L = luabui_module_state();
+  if (!L || g_stop_ref == LUA_NOREF) return 0;
+  int top = lua_gettop(L);
+  lua_rawgeti(L, LUA_REGISTRYINDEX, g_stop_ref);
+  if (!lua_isfunction(L, -1)) {
+    lua_settop(L, top);
+    return 0;
+  }
+  if (lua_pcall(L, 0, 1, 0) != LUA_OK) {
+    luabui_report_error(L);
+    return 1; /* an error stops: a runaway loop is worse than a closed window */
+  }
+  const int stop = lua_toboolean(L, -1);
+  lua_settop(L, top);
+  return stop;
+}
+
+static int l_set_stop_check(lua_State *L) {
+  if (g_stop_ref != LUA_NOREF) {
+    luaL_unref(L, LUA_REGISTRYINDEX, g_stop_ref);
+    g_stop_ref = LUA_NOREF;
+  }
+  if (lua_isfunction(L, 1)) {
+    lua_pushvalue(L, 1);
+    g_stop_ref = luaL_ref(L, LUA_REGISTRYINDEX);
+  }
+  BK_window_set_stop_check(g_stop_ref == LUA_NOREF ? NULL : window_stop_check);
+  return 0;
+}
+
 static int l_link_fields(lua_State *L) {
   luaL_checktype(L, 1, LUA_TTABLE);
   int n = (int)lua_rawlen(L, 1);
@@ -366,6 +646,7 @@ static int l_new_context(lua_State *L) {
   cud->ctx = ctx;
   luaL_getmetatable(L, LUABUI_CONTEXT_MT);
   lua_setmetatable(L, -2);
+  luabui_map_ctx(L, ctx, -1);
 
   /* Set up host callbacks with Lua state as data */
   luabui_init_host_callbacks(L, ctx);
@@ -395,6 +676,7 @@ static int l_new_window(lua_State *L) {
   wud->on_close_ref = LUA_NOREF;
   wud->on_timer_ref = LUA_NOREF;
   wud->on_frame_ref = LUA_NOREF;
+  wud->on_focus_ref = LUA_NOREF;
   wud->self_ref = LUA_NOREF;
   wud->depth = 0;
   wud->zombie = NULL;
@@ -457,8 +739,32 @@ static const struct luaL_Reg bui_module[] = {
   {"set_theme_value", l_set_theme_value},
   {"theme_value", l_theme_value},
   {"set_font",  l_set_font},
+  {"set_font_size", l_set_font_size},
+  {"font_size", l_font_size},
+  {"set_text_shadow", l_set_text_shadow},
+  {"text_shadow", l_text_shadow},
+  {"text_width", l_text_width},
   {"theme_name",l_theme_name},
+  {"theme_mode",l_theme_mode},
+  {"theme_generation", l_theme_generation},
+  {"theme_ignored", l_theme_ignored},
   {"theme_color",l_theme_color},
+  {"set_gpu_default", l_set_gpu_default},
+  {"gpu_default", l_gpu_default},
+  {"effect_create", l_effect_create},
+  {"effect_free", l_effect_free},
+  {"effect_error", l_effect_error},
+  {"draw_widget", l_draw_widget},
+  {"texture_free", l_texture_free},
+  {"file_dialog", l_file_dialog},
+  {"recent_searches_enable", l_recent_searches_enable},
+  {"recent_searches_clear", l_recent_searches_clear},
+  {"recent_searches_load", l_recent_searches_load},
+  {"recent_searches_save", l_recent_searches_save},
+  {"wake_init", l_wake_init},
+  {"wake", l_wake},
+  {"set_keep_alive", l_set_keep_alive},
+  {"set_stop_check", l_set_stop_check},
   {"unit",      l_unit},
   {"version",   l_version},
   {"eval",      l_eval},
@@ -478,10 +784,13 @@ static const struct luaL_Reg bui_module[] = {
   {"image_prefetch",   l_image_prefetch},
   {"image_decode", l_image_decode},
   {"image_decode_frame", l_image_decode_frame},
+  {"image_from_rgba", l_image_from_rgba},
+  {"image_from_argb", l_image_from_argb},
   {"image_load",   l_image_load},
   {"link_fields", l_link_fields},
   {"video_backends", l_video_backends},
   {"Video",        l_video_new},
+  {"Anim",         l_anim_open},
   {NULL, NULL}
 };
 
@@ -519,6 +828,14 @@ BUI_LUA_ENTRY int luaopen_bui(lua_State *L) {
   lua_setmetatable(L, -2);
   lua_setfield(L, LUA_REGISTRYINDEX, LUABUI_TREEITEM_MAP);
 
+  /* Weak-keyed context map in registry (so node:ctx() finds the script's context) */
+  lua_newtable(L);
+  lua_newtable(L);
+  lua_pushstring(L, "k");
+  lua_setfield(L, -2, "__mode");
+  lua_setmetatable(L, -2);
+  lua_setfield(L, LUA_REGISTRYINDEX, LUABUI_CTX_MAP);
+
   /* Register types */
   luabui_register_node(L);
   luabui_register_context(L);
@@ -526,6 +843,7 @@ BUI_LUA_ENTRY int luaopen_bui(lua_State *L) {
   luabui_register_treeitem(L);
   luabui_register_imbuf(L);
   luabui_register_video(L);
+  luabui_register_anim_ud(L);
 
   /* Module table */
   lua_newtable(L);
@@ -573,7 +891,10 @@ BUI_LUA_ENTRY int luaopen_bui(lua_State *L) {
   /* Image formats */
   lua_pushinteger(L, BK_IMAGE_NONE); lua_setfield(L, -2, "IMAGE_NONE");  lua_pushinteger(L, BK_IMAGE_PNG); lua_setfield(L, -2, "IMAGE_PNG");
   lua_pushinteger(L, BK_IMAGE_JPEG); lua_setfield(L, -2, "IMAGE_JPEG");  lua_pushinteger(L, BK_IMAGE_WEBP); lua_setfield(L, -2, "IMAGE_WEBP");
-  lua_pushinteger(L, BK_IMAGE_GIF); lua_setfield(L, -2, "IMAGE_GIF");   lua_pushinteger(L, BK_IMAGE_SVG); lua_setfield(L, -2, "IMAGE_SVG");
+  lua_pushinteger(L, BK_IMAGE_GIF); lua_setfield(L, -2, "IMAGE_GIF");   lua_pushinteger(L, BK_IMAGE_BMP); lua_setfield(L, -2, "IMAGE_BMP");
+  lua_pushinteger(L, BK_IMAGE_TGA); lua_setfield(L, -2, "IMAGE_TGA");   lua_pushinteger(L, BK_IMAGE_QOI); lua_setfield(L, -2, "IMAGE_QOI");
+  lua_pushinteger(L, BK_IMAGE_HDR); lua_setfield(L, -2, "IMAGE_HDR");   lua_pushinteger(L, BK_IMAGE_PNM); lua_setfield(L, -2, "IMAGE_PNM");
+  lua_pushinteger(L, BK_IMAGE_SVG); lua_setfield(L, -2, "IMAGE_SVG");
   lua_pushinteger(L, BK_IMAGE_VIDEO); lua_setfield(L, -2, "IMAGE_VIDEO");
 
   /* Object-fit */
@@ -591,17 +912,60 @@ BUI_LUA_ENTRY int luaopen_bui(lua_State *L) {
   lua_pushinteger(L, BK_ITEM_LINE); lua_setfield(L, -2, "ITEM_LINE");     lua_pushinteger(L, BK_ITEM_POLYGON); lua_setfield(L, -2, "ITEM_POLYGON");
   lua_pushinteger(L, BK_ITEM_TEXT); lua_setfield(L, -2, "ITEM_TEXT");     lua_pushinteger(L, BK_ITEM_ARC); lua_setfield(L, -2, "ITEM_ARC");
   lua_pushinteger(L, BK_ITEM_IMAGE); lua_setfield(L, -2, "ITEM_IMAGE");    lua_pushinteger(L, BK_ITEM_ROUNDRECT); lua_setfield(L, -2, "ITEM_ROUNDRECT");
+  lua_pushinteger(L, BK_ITEM_EFFECT); lua_setfield(L, -2, "ITEM_EFFECT");
 
-  /* Widget draw ids */
+  /* Geometry anchors, text flags */
+  lua_pushinteger(L, BK_ANCHOR_N); lua_setfield(L, -2, "ANCHOR_N");  lua_pushinteger(L, BK_ANCHOR_S); lua_setfield(L, -2, "ANCHOR_S");
+  lua_pushinteger(L, BK_ANCHOR_W); lua_setfield(L, -2, "ANCHOR_W");  lua_pushinteger(L, BK_ANCHOR_E); lua_setfield(L, -2, "ANCHOR_E");
+  lua_pushinteger(L, BUI_FONT_BOLD); lua_setfield(L, -2, "FONT_BOLD");  lua_pushinteger(L, BUI_FONT_ITALIC); lua_setfield(L, -2, "FONT_ITALIC");
+  lua_pushinteger(L, BUI_FONT_UNDERLINE); lua_setfield(L, -2, "FONT_UNDERLINE");
+
+  /* Effect limits */
+  lua_pushinteger(L, BK_EFFECT_MAX_INPUTS); lua_setfield(L, -2, "EFFECT_MAX_INPUTS");
+  lua_pushinteger(L, BK_EFFECT_MAX_FLOATS); lua_setfield(L, -2, "EFFECT_MAX_FLOATS");
+
+  /* Custom node events (the `type` of a custom node's on_event table) */
+  lua_pushinteger(L, BK_CUSTOM_PRESS); lua_setfield(L, -2, "CUSTOM_PRESS");
+  lua_pushinteger(L, BK_CUSTOM_RELEASE); lua_setfield(L, -2, "CUSTOM_RELEASE");
+  lua_pushinteger(L, BK_CUSTOM_MOTION); lua_setfield(L, -2, "CUSTOM_MOTION");
+  lua_pushinteger(L, BK_CUSTOM_LEAVE); lua_setfield(L, -2, "CUSTOM_LEAVE");
+  lua_pushinteger(L, BK_CUSTOM_WHEEL); lua_setfield(L, -2, "CUSTOM_WHEEL");
+  lua_pushinteger(L, BK_CUSTOM_KEY); lua_setfield(L, -2, "CUSTOM_KEY");
+  lua_pushinteger(L, BK_CUSTOM_KEYUP); lua_setfield(L, -2, "CUSTOM_KEYUP");
+  lua_pushinteger(L, BK_CUSTOM_FOCUS); lua_setfield(L, -2, "CUSTOM_FOCUS");
+  lua_pushinteger(L, BK_CUSTOM_BLUR); lua_setfield(L, -2, "CUSTOM_BLUR");
+
+  /* IME composition event kinds (ctx:ime_event) */
+  lua_pushinteger(L, BK_IME_COMPOSITION_START); lua_setfield(L, -2, "IME_COMPOSITION_START");
+  lua_pushinteger(L, BK_IME_COMPOSITION); lua_setfield(L, -2, "IME_COMPOSITION");
+  lua_pushinteger(L, BK_IME_COMPOSITION_END); lua_setfield(L, -2, "IME_COMPOSITION_END");
+
+  /* Cursors the kit can ask a host for */
+  lua_pushinteger(L, BK_CURSOR_NESW); lua_setfield(L, -2, "CURSOR_NESW");
+  lua_pushinteger(L, BK_CURSOR_NWSE); lua_setfield(L, -2, "CURSOR_NWSE");
+  lua_pushinteger(L, BK_CURSOR_NOT_ALLOWED); lua_setfield(L, -2, "CURSOR_NOT_ALLOWED");
+  lua_pushinteger(L, BK_CURSOR_WAIT); lua_setfield(L, -2, "CURSOR_WAIT");
+  lua_pushinteger(L, BK_CURSOR_PROGRESS); lua_setfield(L, -2, "CURSOR_PROGRESS");
+
+  /* Widget draw ids (bui.draw_widget) */
   lua_pushinteger(L, BK_WIDGET_BUTTON); lua_setfield(L, -2, "WIDGET_BUTTON");  lua_pushinteger(L, BK_WIDGET_TOGGLE); lua_setfield(L, -2, "WIDGET_TOGGLE");
   lua_pushinteger(L, BK_WIDGET_CHECKBOX); lua_setfield(L, -2, "WIDGET_CHECKBOX");lua_pushinteger(L, BK_WIDGET_RADIO); lua_setfield(L, -2, "WIDGET_RADIO");
-  lua_pushinteger(L, BK_WIDGET_SLIDER); lua_setfield(L, -2, "WIDGET_SLIDER");  lua_pushinteger(L, BK_WIDGET_TEXT); lua_setfield(L, -2, "WIDGET_TEXT");
+  lua_pushinteger(L, BK_WIDGET_NUMBER); lua_setfield(L, -2, "WIDGET_NUMBER");  lua_pushinteger(L, BK_WIDGET_SLIDER); lua_setfield(L, -2, "WIDGET_SLIDER");
+  lua_pushinteger(L, BK_WIDGET_TEXT); lua_setfield(L, -2, "WIDGET_TEXT");      lua_pushinteger(L, BK_WIDGET_MENU); lua_setfield(L, -2, "WIDGET_MENU");
+  lua_pushinteger(L, BK_WIDGET_PULLDOWN); lua_setfield(L, -2, "WIDGET_PULLDOWN"); lua_pushinteger(L, BK_WIDGET_MENU_ITEM); lua_setfield(L, -2, "WIDGET_MENU_ITEM");
+  lua_pushinteger(L, BK_WIDGET_LIST_ITEM); lua_setfield(L, -2, "WIDGET_LIST_ITEM"); lua_pushinteger(L, BK_WIDGET_SWATCH); lua_setfield(L, -2, "WIDGET_SWATCH");
+  lua_pushinteger(L, BK_WIDGET_PROGRESS); lua_setfield(L, -2, "WIDGET_PROGRESS"); lua_pushinteger(L, BK_WIDGET_TAB); lua_setfield(L, -2, "WIDGET_TAB");
+  lua_pushinteger(L, BK_WIDGET_PANEL_HEADER); lua_setfield(L, -2, "WIDGET_PANEL_HEADER"); lua_pushinteger(L, BK_WIDGET_DISCLOSURE); lua_setfield(L, -2, "WIDGET_DISCLOSURE");
+  lua_pushinteger(L, BK_WIDGET_MENU_BACK); lua_setfield(L, -2, "WIDGET_MENU_BACK"); lua_pushinteger(L, BK_WIDGET_TOOLTIP_BACK); lua_setfield(L, -2, "WIDGET_TOOLTIP_BACK");
   lua_pushinteger(L, BK_WIDGET_LABEL); lua_setfield(L, -2, "WIDGET_LABEL");   lua_pushinteger(L, BK_WIDGET_SEPARATOR); lua_setfield(L, -2, "WIDGET_SEPARATOR");
+  lua_pushinteger(L, BK_WIDGET_ARROW); lua_setfield(L, -2, "WIDGET_ARROW");   lua_pushinteger(L, BK_WIDGET_BOX); lua_setfield(L, -2, "WIDGET_BOX");
+  lua_pushinteger(L, BK_CORNERS_ALL); lua_setfield(L, -2, "CORNERS_ALL");
 
   /* Widget states */
   lua_pushinteger(L, BK_WS_HOVER); lua_setfield(L, -2, "WS_HOVER");     lua_pushinteger(L, BK_WS_PRESSED); lua_setfield(L, -2, "WS_PRESSED");
   lua_pushinteger(L, BK_WS_SELECTED); lua_setfield(L, -2, "WS_SELECTED");  lua_pushinteger(L, BK_WS_DISABLED); lua_setfield(L, -2, "WS_DISABLED");
   lua_pushinteger(L, BK_WS_EDITING); lua_setfield(L, -2, "WS_EDITING");   lua_pushinteger(L, BK_WS_OPEN); lua_setfield(L, -2, "WS_OPEN");
+  lua_pushinteger(L, BK_WS_MIXED); lua_setfield(L, -2, "WS_MIXED");       lua_pushinteger(L, BK_WS_FLAT); lua_setfield(L, -2, "WS_FLAT");
 
   return 1;
 }

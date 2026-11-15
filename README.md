@@ -1558,6 +1558,16 @@ bui.run()
 `MenuBar` — and `ctx:open_menu` / `ctx:open_pie`; `fn` callbacks are refcounted
 by the kit and released with the items.
 
+**Kit surface**: the module follows the current kit header — canvas items
+(`canvas_add` / `canvas_put` / `canvas_truncate`, image items, GPU effects with
+`bui.effect_create` and `bui.ITEM_EFFECT`), custom nodes whose `on_event` /
+`on_frame` / `on_draw` / `on_free` take the kit's raw events and draw with
+`bui.draw_widget`, the IME trio on the context, `bui.file_dialog`, recent
+searches, a theme's own keys through `theme_color` / `theme_value`, `wake` /
+keep-alive / stop-check for hosts on other threads, `bui.image_from_rgba` /
+`image_from_argb`, `imbuf:texture`, `video:set_listener` and `bui.Anim`, and
+the window's `on_focus` / `on_timer` callbacks.
+
 **Examples** (27 scripts, `bindings/lua/examples/`):
 
 - **Getting started:** `hello.lua`, `counter.lua`, `forms.lua`, `gallery.lua`

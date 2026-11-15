@@ -31,6 +31,11 @@ void luabui_set_ref_state(lua_State *L) {
   BK_set_ref_hooks(ref_retain, ref_release);
 }
 
+/* The module's Lua state (callbacks that run on the UI thread call into it). */
+lua_State *luabui_module_state(void) {
+  return g_ref_L;
+}
+
 /* ------------------------------------------------------------------ */
 /* BKHost implementation                                              */
 /* ------------------------------------------------------------------ */
@@ -215,18 +220,7 @@ static int l_ctx_set_header(lua_State *L) {
 static int l_ctx_root(lua_State *L) {
   luabui_Context *cud = CHECK_CTX(L, 1);
   if (!cud->ctx) return 0;
-  BKNode *root = BK_context_root(cud->ctx);
-  if (!root) return 0;
-  if (luabui_lookup_node(L, root)) return 1;
-  /* Create new wrapper */
-  luabui_Node *ud = (luabui_Node *)lua_newuserdata(L, sizeof(luabui_Node));
-  ud->node = root;
-  luaL_getmetatable(L, LUABUI_NODE_MT);
-  lua_setmetatable(L, -2);
-  lua_newtable(L);
-  lua_setuservalue(L, -2);
-  luabui_map_node(L, root, -1);
-  return 1;
+  return luabui_push_node(L, BK_context_root(cud->ctx));
 }
 
 static int l_ctx_render(lua_State *L) {
@@ -380,36 +374,56 @@ static int l_ctx_close_popups(lua_State *L) {
   return 0;
 }
 
-/* Push the node's userdata (made on first use), or nothing for NULL. */
-static int push_node(lua_State *L, BKNode *n) {
-  if (!n) return 0;
-  if (luabui_lookup_node(L, n)) return 1;
-  luabui_Node *ud = (luabui_Node *)lua_newuserdata(L, sizeof(luabui_Node));
-  ud->node = n;
-  luaL_getmetatable(L, LUABUI_NODE_MT);
-  lua_setmetatable(L, -2);
-  lua_newtable(L);
-  lua_setuservalue(L, -2);
-  luabui_map_node(L, n, -1);
+/* ------------------------------------------------------------------ */
+/* Context map (BKContext* <-> userdata, so node:ctx() finds the one  */
+/* the script made)                                                   */
+/* ------------------------------------------------------------------ */
+
+void luabui_map_ctx(lua_State *L, BKContext *ctx, int ud_idx) {
+  lua_getfield(L, LUA_REGISTRYINDEX, LUABUI_CTX_MAP);
+  lua_pushlightuserdata(L, ctx);
+  lua_pushvalue(L, ud_idx < 0 ? ud_idx - 2 : ud_idx);
+  lua_rawset(L, -3);
+  lua_pop(L, 1);
+}
+
+int luabui_lookup_ctx(lua_State *L, BKContext *ctx) {
+  int top = lua_gettop(L);
+  lua_getfield(L, LUA_REGISTRYINDEX, LUABUI_CTX_MAP);
+  lua_pushlightuserdata(L, ctx);
+  lua_rawget(L, -2);
+  if (lua_isnil(L, -1)) {
+    lua_settop(L, top);
+    return 0;
+  }
+  lua_remove(L, -2); /* pop map table, keep userdata */
   return 1;
+}
+
+void luabui_unmap_ctx(lua_State *L, BKContext *ctx) {
+  lua_getfield(L, LUA_REGISTRYINDEX, LUABUI_CTX_MAP);
+  lua_pushlightuserdata(L, ctx);
+  lua_pushnil(L);
+  lua_rawset(L, -3);
+  lua_pop(L, 1);
 }
 
 static int l_ctx_focus(lua_State *L) {
   luabui_Context *cud = CHECK_CTX(L, 1);
   if (!cud->ctx) return 0;
-  return push_node(L, BK_focus(cud->ctx));
+  return luabui_push_node(L, BK_focus(cud->ctx));
 }
 
 static int l_ctx_hover(lua_State *L) {
   luabui_Context *cud = CHECK_CTX(L, 1);
   if (!cud->ctx) return 0;
-  return push_node(L, BK_hover(cud->ctx));
+  return luabui_push_node(L, BK_hover(cud->ctx));
 }
 
 static int l_ctx_hit(lua_State *L) {
   luabui_Context *cud = CHECK_CTX(L, 1);
   if (!cud->ctx) return 0;
-  return push_node(L, BK_hit_at(cud->ctx, (int)luaL_checkinteger(L, 2),
+  return luabui_push_node(L, BK_hit_at(cud->ctx, (int)luaL_checkinteger(L, 2),
                                 (int)luaL_checkinteger(L, 3)));
 }
 
@@ -436,13 +450,7 @@ static int l_ctx_popup_owner(lua_State *L) {
   if (!cud->ctx) return 0;
   int i = (int)luaL_checkinteger(L, 2);
   if (i < 0) i = BK_popup_count(cud->ctx) + i;
-  BKNode *n = BK_popup_owner(cud->ctx, i);
-  if (!n) return 0;
-  if (luabui_lookup_node(L, n)) return 1;
-  luabui_Node *ud = (luabui_Node *)lua_newuserdata(L, sizeof(luabui_Node));
-  ud->node = n; luaL_getmetatable(L, LUABUI_NODE_MT); lua_setmetatable(L, -2);
-  lua_newtable(L); lua_setuservalue(L, -2); luabui_map_node(L, n, -1);
-  return 1;
+  return luabui_push_node(L, BK_popup_owner(cud->ctx, i));
 }
 
 static int l_ctx_menu_rows(lua_State *L) {
@@ -476,13 +484,7 @@ static int l_ctx_picker_part(lua_State *L) {
   if (i < 0) i = BK_popup_count(cud->ctx) + i;
   BKNode *p = BK_popup(cud->ctx, i);
   if (!p) return 0;
-  BKNode *n = BK_picker_part(p, name);
-  if (!n) return 0;
-  if (luabui_lookup_node(L, n)) return 1;
-  luabui_Node *ud = (luabui_Node *)lua_newuserdata(L, sizeof(luabui_Node));
-  ud->node = n; luaL_getmetatable(L, LUABUI_NODE_MT); lua_setmetatable(L, -2);
-  lua_newtable(L); lua_setuservalue(L, -2); luabui_map_node(L, n, -1);
-  return 1;
+  return luabui_push_node(L, BK_picker_part(p, name));
 }
 
 static int l_ctx_modal(lua_State *L) {
@@ -545,6 +547,65 @@ static int l_ctx_set_pointer(lua_State *L) {
   return 0;
 }
 
+/* ctx:configure(w, h): the window is now w x h: lays out and reports the geometry
+ * (on_motion/BK_EV_CONFIGURE) without drawing. Returns true when the size changed. */
+static int l_ctx_configure(lua_State *L) {
+  luabui_Context *cud = CHECK_CTX(L, 1);
+  int w = (int)luaL_checkinteger(L, 2);
+  int h = (int)luaL_checkinteger(L, 3);
+  lua_pushboolean(L, cud->ctx ? BK_configure(cud->ctx, w, h) : 0);
+  return 1;
+}
+
+/* ctx:ime_event(type, table): forward a platform composition event.
+ * table: {result = "", composite = "", cursor_pos = -1, sel_start = -1, sel_end = -1} */
+static int l_ctx_ime_event(lua_State *L) {
+  luabui_Context *cud = CHECK_CTX(L, 1);
+  if (!cud->ctx) return 0;
+  int type = (int)luaL_checkinteger(L, 2);
+  luaL_checktype(L, 3, LUA_TTABLE);
+  BKImeEvent e;
+  memset(&e, 0, sizeof(e));
+  lua_getfield(L, 3, "result");
+  e.result = lua_tostring(L, -1);
+  lua_pop(L, 1);
+  lua_getfield(L, 3, "composite");
+  e.composite = lua_tostring(L, -1);
+  lua_pop(L, 1);
+  lua_getfield(L, 3, "cursor_pos");
+  e.cursor_pos = (int)luaL_optinteger(L, -1, -1);
+  lua_pop(L, 1);
+  lua_getfield(L, 3, "sel_start");
+  e.sel_start = (int)luaL_optinteger(L, -1, -1);
+  lua_pop(L, 1);
+  lua_getfield(L, 3, "sel_end");
+  e.sel_end = (int)luaL_optinteger(L, -1, -1);
+  lua_pop(L, 1);
+  lua_pushboolean(L, BK_ime_event(cud->ctx, type, &e));
+  return 1;
+}
+
+/* ctx:ime_state(): {enabled, restart, x, y}, or nil when nothing changed since the last call. */
+static int l_ctx_ime_state(lua_State *L) {
+  luabui_Context *cud = CHECK_CTX(L, 1);
+  if (!cud->ctx) return 0;
+  BKImeState st;
+  memset(&st, 0, sizeof(st));
+  if (!BK_ime_state(cud->ctx, &st)) { lua_pushnil(L); return 1; }
+  lua_createtable(L, 0, 4);
+  lua_pushboolean(L, st.enabled); lua_setfield(L, -2, "enabled");
+  lua_pushboolean(L, st.restart); lua_setfield(L, -2, "restart");
+  lua_pushinteger(L, st.x);       lua_setfield(L, -2, "x");
+  lua_pushinteger(L, st.y);       lua_setfield(L, -2, "y");
+  return 1;
+}
+
+static int l_ctx_ime_composing(lua_State *L) {
+  luabui_Context *cud = CHECK_CTX(L, 1);
+  lua_pushboolean(L, cud->ctx ? BK_ime_composing(cud->ctx) : 0);
+  return 1;
+}
+
 static int l_ctx_popup_count(lua_State *L) {
   luabui_Context *cud = CHECK_CTX(L, 1);
   lua_pushinteger(L, cud->ctx ? BK_popup_count(cud->ctx) : 0);
@@ -556,17 +617,7 @@ static int l_ctx_popup(lua_State *L) {
   if (!cud->ctx) return 0;
   int i = (int)luaL_checkinteger(L, 2);
   if (i < 0) i = BK_popup_count(cud->ctx) + i;
-  BKNode *n = BK_popup(cud->ctx, i);
-  if (!n) return 0;
-  if (luabui_lookup_node(L, n)) return 1;
-  luabui_Node *ud = (luabui_Node *)lua_newuserdata(L, sizeof(luabui_Node));
-  ud->node = n;
-  luaL_getmetatable(L, LUABUI_NODE_MT);
-  lua_setmetatable(L, -2);
-  lua_newtable(L);
-  lua_setuservalue(L, -2);
-  luabui_map_node(L, n, -1);
-  return 1;
+  return luabui_push_node(L, BK_popup(cud->ctx, i));
 }
 
 static int l_ctx_open_menu(lua_State *L) {
@@ -622,6 +673,7 @@ static int l_ctx_free(lua_State *L) {
   luabui_Context *cud = CHECK_CTX(L, 1);
   if (cud->ctx) {
     nullify_ctx_nodes(L, cud->ctx);
+    luabui_unmap_ctx(L, cud->ctx);
     BK_context_free(cud->ctx); /* releases bind + menu refs via the hooks */
     cud->ctx = NULL;
   }
@@ -632,6 +684,7 @@ static int l_ctx_gc(lua_State *L) {
   luabui_Context *cud = (luabui_Context *)luaL_checkudata(L, 1, LUABUI_CONTEXT_MT);
   if (cud->ctx) {
     nullify_ctx_nodes(L, cud->ctx);
+    luabui_unmap_ctx(L, cud->ctx);
     BK_context_free(cud->ctx);
     cud->ctx = NULL;
   }
@@ -671,6 +724,10 @@ static const luaL_Reg ctx_methods[] = {
   {"hit",           l_ctx_hit},
   {"cursor",        l_ctx_cursor},
   {"set_pointer",   l_ctx_set_pointer},
+  {"configure",     l_ctx_configure},
+  {"ime_event",     l_ctx_ime_event},
+  {"ime_state",     l_ctx_ime_state},
+  {"ime_composing", l_ctx_ime_composing},
   {"modal",         l_ctx_modal},
   {"tooltip",       l_ctx_tooltip},
   {"undo",          l_ctx_undo},

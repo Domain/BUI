@@ -37,6 +37,20 @@ void luabui_unmap_node(lua_State *L, BKNode *node) {
   lua_pop(L, 1);
 }
 
+/* Push the Lua wrapper of a BKNode* (made on first use), or nothing for NULL. Returns 1 if on the stack. */
+int luabui_push_node(lua_State *L, BKNode *node) {
+  if (!node) return 0;
+  if (luabui_lookup_node(L, node)) return 1;
+  luabui_Node *ud = (luabui_Node *)lua_newuserdata(L, sizeof(luabui_Node));
+  ud->node = node;
+  luaL_getmetatable(L, LUABUI_NODE_MT);
+  lua_setmetatable(L, -2);
+  lua_newtable(L);
+  lua_setuservalue(L, -2);
+  luabui_map_node(L, node, -1);
+  return 1;
+}
+
 /* ------------------------------------------------------------------ */
 /* Helper: push a four-value color from float[4]                      */
 /* ------------------------------------------------------------------ */
@@ -77,18 +91,7 @@ static int l_node_remove(lua_State *L) {
 static int l_node_child(lua_State *L) {
   luabui_Node *ud = CHECK_NODE(L, 1);
   if (!ud->node) return 0;
-  int i = (int)luaL_checkinteger(L, 2);
-  BKNode *child = BK_node_child(ud->node, i);
-  if (!child) return 0;
-  if (luabui_lookup_node(L, child)) return 1;
-  luabui_Node *cud = (luabui_Node *)lua_newuserdata(L, sizeof(luabui_Node));
-  cud->node = child;
-  luaL_getmetatable(L, LUABUI_NODE_MT);
-  lua_setmetatable(L, -2);
-  lua_newtable(L);
-  lua_setuservalue(L, -2);
-  luabui_map_node(L, child, -1);
-  return 1;
+  return luabui_push_node(L, BK_node_child(ud->node, (int)luaL_checkinteger(L, 2)));
 }
 
 static int l_node_children(lua_State *L) {
@@ -97,16 +100,7 @@ static int l_node_children(lua_State *L) {
   int n = BK_node_child_count(ud->node);
   lua_createtable(L, n, 0);
   for (int i = 0; i < n; i++) {
-    BKNode *child = BK_node_child(ud->node, i);
-    if (!luabui_lookup_node(L, child)) {
-      luabui_Node *cud = (luabui_Node *)lua_newuserdata(L, sizeof(luabui_Node));
-      cud->node = child;
-      luaL_getmetatable(L, LUABUI_NODE_MT);
-      lua_setmetatable(L, -2);
-      lua_newtable(L);
-      lua_setuservalue(L, -2);
-      luabui_map_node(L, child, -1);
-    }
+    luabui_push_node(L, BK_node_child(ud->node, i));
     lua_rawseti(L, -2, i + 1);
   }
   return 1;
@@ -121,17 +115,7 @@ static int l_node_child_count(lua_State *L) {
 static int l_node_parent(lua_State *L) {
   luabui_Node *ud = CHECK_NODE(L, 1);
   if (!ud->node) return 0;
-  BKNode *parent = BK_node_parent(ud->node);
-  if (!parent) return 0;
-  if (luabui_lookup_node(L, parent)) return 1;
-  luabui_Node *pud = (luabui_Node *)lua_newuserdata(L, sizeof(luabui_Node));
-  pud->node = parent;
-  luaL_getmetatable(L, LUABUI_NODE_MT);
-  lua_setmetatable(L, -2);
-  lua_newtable(L);
-  lua_setuservalue(L, -2);
-  luabui_map_node(L, parent, -1);
-  return 1;
+  return luabui_push_node(L, BK_node_parent(ud->node));
 }
 
 static int l_node_type(lua_State *L) {
@@ -413,36 +397,54 @@ static int l_node_set_video(lua_State *L) {
 /* Canvas methods                                                     */
 /* ------------------------------------------------------------------ */
 
-static int l_node_canvas_set(lua_State *L) {
-  luabui_Node *ud = CHECK_NODE(L, 1);
-  if (!ud->node) return luaL_error(L, "attempt to use freed node");
-  luaL_checktype(L, 2, LUA_TTABLE);
+/* Fill a BKCanvasItem from the table at stack index `idx` and hand it to the kit
+ * (mode: BK_canvas_set_item / add_item / put_item at `index`).
+ *
+ * The kit copies what it draws (coords, floats, rgba, text, src) but borrows
+ * imbuf/video and does not copy `family`: the whole item table is kept in the
+ * node's uservalue ("_keep"), so its strings and wrapper userdata outlive the item. */
+static void apply_canvas_item(lua_State *L, int idx, luabui_Node *ud, int mode, int index) {
+  luaL_checktype(L, idx, LUA_TTABLE);
   BKCanvasItem it;
   memset(&it, 0, sizeof(it));
-  lua_getfield(L, 2, "id");     it.id = (int)luaL_optinteger(L, -1, 0);
-  lua_getfield(L, 2, "type");   it.type = (int)luaL_optinteger(L, -1, 0);
-  lua_getfield(L, 2, "width");  it.width = (float)luaL_optnumber(L, -1, 1.0);
-  lua_getfield(L, 2, "radius"); it.radius = (float)luaL_optnumber(L, -1, 0.0);
-  lua_getfield(L, 2, "size");   it.size = (float)luaL_optnumber(L, -1, 0.0);
-  lua_getfield(L, 2, "start");  it.start = (float)luaL_optnumber(L, -1, 0.0);
-  lua_getfield(L, 2, "extent"); it.extent = (float)luaL_optnumber(L, -1, 90.0);
-  lua_getfield(L, 2, "hidden"); it.hidden = lua_toboolean(L, -1);
-  lua_getfield(L, 2, "anchor"); it.anchor = (int)luaL_optinteger(L, -1, 0);
-  lua_getfield(L, 2, "text");   it.text = lua_tostring(L, -1);
+  lua_getfield(L, idx, "id");      it.id = (int)luaL_optinteger(L, -1, 0);
+  lua_getfield(L, idx, "type");    it.type = (int)luaL_optinteger(L, -1, 0);
+  lua_getfield(L, idx, "width");   it.width = (float)luaL_optnumber(L, -1, 1.0);
+  lua_getfield(L, idx, "radius");  it.radius = (float)luaL_optnumber(L, -1, 0.0);
+  lua_getfield(L, idx, "size");    it.size = (float)luaL_optnumber(L, -1, 0.0);
+  lua_getfield(L, idx, "start");   it.start = (float)luaL_optnumber(L, -1, 0.0);
+  lua_getfield(L, idx, "extent");  it.extent = (float)luaL_optnumber(L, -1, 90.0);
+  lua_getfield(L, idx, "hidden");  it.hidden = lua_toboolean(L, -1);
+  lua_getfield(L, idx, "anchor");  it.anchor = (int)luaL_optinteger(L, -1, 0);
+  lua_getfield(L, idx, "text");    it.text = lua_tostring(L, -1);
+  lua_getfield(L, idx, "text_flags"); it.text_flags = (int)luaL_optinteger(L, -1, 0);
+  lua_getfield(L, idx, "no_hit");  it.no_hit = lua_toboolean(L, -1);
+  lua_getfield(L, idx, "fit");     it.fit = (int)luaL_optinteger(L, -1, BK_FIT_FILL);
+  lua_getfield(L, idx, "frame");   it.frame = (int)luaL_optinteger(L, -1, 0);
   lua_pop(L, 1);
-  /* fill / outline: 4-number table */
-  lua_getfield(L, 2, "fill");
+
+  /* clip: {x, y, w, h}, clip_on when the table is there */
+  lua_getfield(L, idx, "clip");
+  if (lua_istable(L, -1)) {
+    it.clip_on = 1;
+    for (int j = 0; j < 4; j++) { lua_rawgeti(L, -1, j + 1); it.clip[j] = (float)luaL_optnumber(L, -1, 0.0); lua_pop(L, 1); }
+  }
+  lua_pop(L, 1);
+
+  /* fill / outline: 4-number tables (alpha 0 = none) */
+  lua_getfield(L, idx, "fill");
   if (lua_istable(L, -1)) {
     for (int j = 0; j < 4; j++) { lua_rawgeti(L, -1, j + 1); it.fill[j] = (float)lua_tonumber(L, -1); lua_pop(L, 1); }
   }
   lua_pop(L, 1);
-  lua_getfield(L, 2, "outline");
+  lua_getfield(L, idx, "outline");
   if (lua_istable(L, -1)) {
     for (int j = 0; j < 4; j++) { lua_rawgeti(L, -1, j + 1); it.outline[j] = (float)lua_tonumber(L, -1); lua_pop(L, 1); }
   }
   lua_pop(L, 1);
+
   /* coords: array of numbers */
-  lua_getfield(L, 2, "coords");
+  lua_getfield(L, idx, "coords");
   if (lua_istable(L, -1)) {
     int n = (int)lua_rawlen(L, -1);
     float *c = (float *)calloc((size_t)(n + 1), sizeof(float));
@@ -451,8 +453,115 @@ static int l_node_canvas_set(lua_State *L) {
     it.ncoords = n;
   }
   lua_pop(L, 1);
-  BK_canvas_set_item(ud->node, &it);
+
+  /* Images: exactly one of rgba (copied by the kit), imbuf (borrowed) or src (a file). */
+  lua_getfield(L, idx, "rgba");
+  if (lua_isstring(L, -1)) {
+    size_t len;
+    const char *bytes = lua_tolstring(L, -1, &len);
+    lua_getfield(L, idx, "iw"); it.iw = (int)luaL_optinteger(L, -1, 0); lua_pop(L, 1);
+    lua_getfield(L, idx, "ih"); it.ih = (int)luaL_optinteger(L, -1, 0); lua_pop(L, 1);
+    if (it.iw <= 0 || it.ih <= 0 || (size_t)it.iw * (size_t)it.ih * 4 != len) {
+      luaL_error(L, "canvas item rgba needs iw, ih and iw*ih*4 bytes");
+    }
+    it.rgba = (const unsigned char *)bytes;
+  }
+  lua_pop(L, 1);
+  lua_getfield(L, idx, "imbuf");
+  if (lua_isuserdata(L, -1)) {
+    luabui_ImBuf *iud = CHECK_IMBUF(L, -1);
+    it.imbuf = iud->ib;
+  }
+  lua_pop(L, 1);
+  lua_getfield(L, idx, "src");
+  if (lua_isstring(L, -1)) it.src = lua_tostring(L, -1);
+  lua_pop(L, 1);
+  lua_getfield(L, idx, "video");
+  if (lua_isuserdata(L, -1)) {
+    luabui_Video *vud = CHECK_VIDEO(L, -1);
+    it.video = vud->video;
+  }
+  lua_pop(L, 1);
+
+  /* GPU effect (BK_ITEM_EFFECT): a BK_effect_create id, the BUI textures it
+   * samples and its floats (the kit copies the floats). */
+  lua_getfield(L, idx, "effect");        it.effect = (int)luaL_optinteger(L, -1, 0); lua_pop(L, 1);
+  lua_getfield(L, idx, "effect_inputs");
+  if (lua_istable(L, -1)) {
+    int n = (int)lua_rawlen(L, -1);
+    if (n > BK_EFFECT_MAX_INPUTS) n = BK_EFFECT_MAX_INPUTS;
+    for (int i = 0; i < n; i++) { lua_rawgeti(L, -1, i + 1); it.effect_inputs[i] = (int)luaL_optinteger(L, -1, 0); lua_pop(L, 1); }
+  }
+  lua_pop(L, 1);
+  lua_getfield(L, idx, "effect_floats");
+  float *ef = NULL;
+  if (lua_istable(L, -1)) {
+    int n = (int)lua_rawlen(L, -1);
+    if (n > BK_EFFECT_MAX_FLOATS) n = BK_EFFECT_MAX_FLOATS;
+    ef = (float *)calloc((size_t)(n + 1), sizeof(float));
+    for (int i = 0; i < n; i++) { lua_rawgeti(L, -1, i + 1); ef[i] = (float)luaL_optnumber(L, -1, 0.0); lua_pop(L, 1); }
+    it.effect_floats = ef;
+    it.n_effect_floats = n;
+  }
+  lua_pop(L, 1);
+
+  /* Text font family: not copied by the kit. */
+  lua_getfield(L, idx, "family");
+  if (lua_isstring(L, -1)) it.family = lua_tostring(L, -1);
+  lua_pop(L, 1);
+
+  /* Keep the item table with the node: its strings (text, src, family) and the
+   * imbuf/video wrappers it borrows must outlive the kit's copy. */
+  lua_getuservalue(L, 1);
+  if (!lua_istable(L, -1)) {
+    lua_pop(L, 1);
+    lua_newtable(L);
+    lua_setuservalue(L, 1);
+    lua_getuservalue(L, 1);
+  }
+  lua_getfield(L, -1, "_keep");
+  if (!lua_istable(L, -1)) {
+    lua_pop(L, 1);
+    lua_newtable(L);
+    lua_pushvalue(L, -1);
+    lua_setfield(L, -3, "_keep");
+  }
+  lua_pushvalue(L, idx);
+  lua_rawseti(L, -2, (int)lua_rawlen(L, -2) + 1);
+  lua_pop(L, 2); /* _keep, uservalue */
+
+  if (mode == 0)      BK_canvas_set_item(ud->node, &it);
+  else if (mode == 1) BK_canvas_add_item(ud->node, &it);
+  else                BK_canvas_put_item(ud->node, index, &it);
   if (it.coords) free((void *)it.coords);
+  if (ef) free(ef);
+}
+
+static int l_node_canvas_set(lua_State *L) {
+  luabui_Node *ud = CHECK_NODE(L, 1);
+  if (!ud->node) return luaL_error(L, "attempt to use freed node");
+  apply_canvas_item(L, 2, ud, 0, 0);
+  return 0;
+}
+
+static int l_node_canvas_add(lua_State *L) {
+  luabui_Node *ud = CHECK_NODE(L, 1);
+  if (!ud->node) return luaL_error(L, "attempt to use freed node");
+  apply_canvas_item(L, 2, ud, 1, 0);
+  return 0;
+}
+
+static int l_node_canvas_put(lua_State *L) {
+  luabui_Node *ud = CHECK_NODE(L, 1);
+  if (!ud->node) return luaL_error(L, "attempt to use freed node");
+  int index = (int)luaL_checkinteger(L, 2);
+  apply_canvas_item(L, 3, ud, 2, index);
+  return 0;
+}
+
+static int l_node_canvas_truncate(lua_State *L) {
+  luabui_Node *ud = CHECK_NODE(L, 1);
+  if (ud->node) BK_canvas_truncate(ud->node, (int)luaL_checkinteger(L, 2));
   return 0;
 }
 
@@ -909,13 +1018,113 @@ static int l_node_set_menus(lua_State *L) {
   return 0;
 }
 
+/* Custom nodes: the class table lives in the registry (the node's ref); the C
+ * callbacks below dispatch on_event / on_frame / on_free into it. `data` is the
+ * Lua state, and callbacks run on the UI thread (as every kit callback). */
+
+/* Push the node's class table (found through its ref), or return 0. */
+static int custom_get_class(lua_State *L, BKNode *node) {
+  void *ref = BK_node_ref(node);
+  if (!ref) return 0;
+  lua_rawgeti(L, LUA_REGISTRYINDEX, (int)(intptr_t)ref);
+  if (!lua_istable(L, -1)) {
+    lua_pop(L, 1);
+    return 0;
+  }
+  return 1;
+}
+
+/* Call cls.on_free(self) and let go of the class table's registry ref. */
+static void custom_free_cb(void *data, BKNode *node) {
+  lua_State *L = (lua_State *)data;
+  void *ref = BK_node_ref(node);
+  if (!ref) return;
+  if (custom_get_class(L, node)) {
+    lua_getfield(L, -1, "on_free");
+    if (lua_isfunction(L, -1)) {
+      luabui_push_node(L, node);
+      if (lua_pcall(L, 1, 0, 0) != LUA_OK) luabui_report_error(L);
+    } else {
+      lua_pop(L, 1);
+    }
+    lua_pop(L, 1); /* class table */
+  }
+  luaL_unref(L, LUA_REGISTRYINDEX, (int)(intptr_t)ref);
+  BK_node_set_ref(node, NULL);
+}
+
+static int custom_event_cb(void *data, BKNode *node, const BKCustomEvent *e) {
+  lua_State *L = (lua_State *)data;
+  if (!custom_get_class(L, node)) return 0;
+  lua_getfield(L, -1, "on_event");
+  if (!lua_isfunction(L, -1)) {
+    lua_pop(L, 2); /* on_event (nil), class */
+    return 0;
+  }
+  luabui_push_node(L, node);
+  lua_createtable(L, 0, 10);
+  lua_pushinteger(L, e->type);            lua_setfield(L, -2, "type");
+  lua_pushnumber(L, e->x);                lua_setfield(L, -2, "x");
+  lua_pushnumber(L, e->y);                lua_setfield(L, -2, "y");
+  lua_pushinteger(L, e->button);          lua_setfield(L, -2, "button");
+  lua_pushinteger(L, e->mods);            lua_setfield(L, -2, "mods");
+  lua_pushinteger(L, e->clicks);          lua_setfield(L, -2, "clicks");
+  lua_pushnumber(L, e->wheel_x);          lua_setfield(L, -2, "wheel_x");
+  lua_pushnumber(L, e->wheel_y);          lua_setfield(L, -2, "wheel_y");
+  lua_pushstring(L, e->text ? e->text : "");       lua_setfield(L, -2, "text");
+  lua_pushstring(L, e->keysym ? e->keysym : "");   lua_setfield(L, -2, "keysym");
+  if (lua_pcall(L, 2, 1, 0) != LUA_OK) {
+    luabui_report_error(L);
+    lua_pop(L, 1); /* class */
+    return 0;
+  }
+  const int used = lua_toboolean(L, -1);
+  lua_pop(L, 2); /* result, class */
+  return used;
+}
+
+static void custom_frame_cb(void *data, BKNode *node) {
+  lua_State *L = (lua_State *)data;
+  if (!custom_get_class(L, node)) return;
+  lua_getfield(L, -1, "on_frame");
+  if (!lua_isfunction(L, -1)) {
+    lua_pop(L, 2);
+    return;
+  }
+  luabui_push_node(L, node);
+  if (lua_pcall(L, 1, 0, 0) != LUA_OK) luabui_report_error(L);
+  lua_pop(L, 1); /* class */
+}
+
+/* on_draw(self, raster, x, y, w, h): the raster (win:raster()-style lightuserdata) is
+ * clipped to the redrawn region inside the node; draw with bui.draw_widget(raster, ...). */
+static void custom_draw_cb(void *data, BKNode *node, BuiRaster *r, const int rect[4]) {
+  lua_State *L = (lua_State *)data;
+  if (!custom_get_class(L, node)) return;
+  lua_getfield(L, -1, "on_draw");
+  if (!lua_isfunction(L, -1)) {
+    lua_pop(L, 2);
+    return;
+  }
+  luabui_push_node(L, node);
+  lua_pushlightuserdata(L, (void *)r);
+  for (int i = 0; i < 4; i++) lua_pushinteger(L, rect[i]);
+  if (lua_pcall(L, 6, 0, 0) != LUA_OK) luabui_report_error(L);
+  lua_pop(L, 1); /* class */
+}
+
 static int l_node_custom_set(lua_State *L) {
   luabui_Node *ud = CHECK_NODE(L, 1);
   if (!ud->node) return luaL_error(L, "attempt to use freed node");
   luaL_checktype(L, 2, LUA_TTABLE);
-  BKCustomClass cls = {0};
-  cls.natural_w = 0;
-  cls.natural_h = 0;
+  BKCustomClass cls;
+  memset(&cls, 0, sizeof(cls));
+  cls.event = custom_event_cb;
+  cls.frame = custom_frame_cb;
+  cls.free = custom_free_cb;
+  lua_getfield(L, 2, "on_draw");
+  cls.draw = lua_isfunction(L, -1) ? custom_draw_cb : NULL;
+  lua_pop(L, 1);
 
   lua_getfield(L, 2, "natural_w");
   cls.natural_w = (int)luaL_optinteger(L, -1, 0);
@@ -923,7 +1132,10 @@ static int l_node_custom_set(lua_State *L) {
   cls.natural_h = (int)luaL_optinteger(L, -1, 0);
   lua_pop(L, 2);
 
-  /* Store the class table as userdata on the node's ref for event dispatch */
+  /* Replace any earlier class table (custom_set called twice on the node). */
+  if (BK_node_ref(ud->node)) {
+    luaL_unref(L, LUA_REGISTRYINDEX, (int)(intptr_t)BK_node_ref(ud->node));
+  }
   lua_pushvalue(L, 2);
   BK_node_set_ref(ud->node, (void *)(intptr_t)luaL_ref(L, LUA_REGISTRYINDEX));
 
@@ -964,6 +1176,17 @@ static int l_node_tostring(lua_State *L) {
     lua_pushfstring(L, "bui.Node: %s (%p)", BK_node_type(ud->node), (void *)ud->node);
   } else {
     lua_pushfstring(L, "bui.Node: (freed)");
+  }
+  return 1;
+}
+
+/* node:ctx(): the context the node is shown in, or nil while detached. */
+static int l_node_ctx(lua_State *L) {
+  luabui_Node *ud = CHECK_NODE(L, 1);
+  if (!ud->node) return 0;
+  BKContext *ctx = BK_node_context(ud->node);
+  if (!ctx || !luabui_lookup_ctx(L, ctx)) {
+    lua_pushnil(L);
   }
   return 1;
 }
@@ -1075,8 +1298,12 @@ static const luaL_Reg node_methods[] = {
   {"set_image_frame",  l_node_set_image_frame},
   {"set_video",        l_node_set_video},
   {"canvas_set",   l_node_canvas_set},
+  {"canvas_add",   l_node_canvas_add},
+  {"canvas_put",   l_node_canvas_put},
+  {"canvas_truncate", l_node_canvas_truncate},
   {"canvas_delete",l_node_canvas_delete},
   {"canvas_raise", l_node_canvas_raise},
+  {"ctx",          l_node_ctx},
   {"ta_insert",    l_node_ta_insert},
   {"ta_delete",    l_node_ta_delete},
   {"ta_spans",     l_node_ta_spans},

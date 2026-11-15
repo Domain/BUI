@@ -134,6 +134,15 @@ static int l_win_pixel(lua_State *L) {
   return 3;
 }
 
+/* win:raster(): the window's BuiRaster as a lightuserdata, for bui.draw_widget
+ * and a custom node's on_draw. It lives as long as the window. */
+static int l_win_raster(lua_State *L) {
+  luabui_Window *wud = CHECK_WIN(L, 1);
+  if (!wud->win) return 0;
+  lua_pushlightuserdata(L, (void *)BK_window_raster(wud->win));
+  return 1;
+}
+
 static int l_win_frames(lua_State *L) {
   luabui_Window *wud = CHECK_WIN(L, 1);
   lua_pushinteger(L, wud->win ? BK_window_frames(wud->win) : 0);
@@ -199,13 +208,52 @@ static void win_on_frame_cb(void *data, BKWindow *win) {
   call_window_fn(wud, wud->on_frame_ref, 0);
 }
 
+/* fn(win, active): the window got (true) or lost (false) the keyboard focus. */
+static void win_on_focus_cb(void *data, BKWindow *win, int active) {
+  (void)win;
+  luabui_Window *wud = (luabui_Window *)data;
+  lua_State *L = wud->L;
+  if (wud->on_focus_ref == LUA_NOREF || wud->self_ref == LUA_NOREF) return;
+  lua_rawgeti(L, LUA_REGISTRYINDEX, wud->on_focus_ref);
+  if (!lua_isfunction(L, -1)) {
+    lua_pop(L, 1);
+    return;
+  }
+  lua_rawgeti(L, LUA_REGISTRYINDEX, wud->self_ref);
+  lua_pushboolean(L, active);
+  wud->depth++;
+  if (lua_pcall(L, 2, 0, 0) != LUA_OK) luabui_report_error(L);
+  wud->depth--;
+}
+
+/* fn(win, id): a BK_window_timer fired. */
+static void win_on_timer_cb(void *data, BKWindow *win, int id) {
+  (void)win;
+  luabui_Window *wud = (luabui_Window *)data;
+  lua_State *L = wud->L;
+  if (wud->on_timer_ref == LUA_NOREF || wud->self_ref == LUA_NOREF) return;
+  lua_rawgeti(L, LUA_REGISTRYINDEX, wud->on_timer_ref);
+  if (!lua_isfunction(L, -1)) {
+    lua_pop(L, 1);
+    return;
+  }
+  lua_rawgeti(L, LUA_REGISTRYINDEX, wud->self_ref);
+  lua_pushinteger(L, id);
+  wud->depth++;
+  if (lua_pcall(L, 2, 0, 0) != LUA_OK) luabui_report_error(L);
+  wud->depth--;
+}
+
 /* BK_window_set_callbacks replaces them all: install the ones that have a Lua function. */
 static void install_callbacks(luabui_Window *wud) {
   BKWindowCallbacks cb;
   memset(&cb, 0, sizeof(cb));
-  if (wud->on_close_ref != LUA_NOREF || wud->on_frame_ref != LUA_NOREF) cb.data = wud;
+  if (wud->on_close_ref != LUA_NOREF || wud->on_frame_ref != LUA_NOREF ||
+      wud->on_focus_ref != LUA_NOREF || wud->on_timer_ref != LUA_NOREF) cb.data = wud;
   if (cb.data) cb.on_close = win_on_close_cb; /* always: closing is when the callbacks' references go */
   if (wud->on_frame_ref != LUA_NOREF) cb.on_frame = win_on_frame_cb;
+  if (wud->on_focus_ref != LUA_NOREF) cb.on_focus = win_on_focus_cb;
+  if (wud->on_timer_ref != LUA_NOREF) cb.on_timer = win_on_timer_cb;
   BK_window_set_callbacks(wud->win, &cb);
 }
 
@@ -219,7 +267,8 @@ static void set_window_fn(lua_State *L, luabui_Window *wud, int *slot) {
     lua_pushvalue(L, 2);
     *slot = luaL_ref(L, LUA_REGISTRYINDEX);
   }
-  const int wanted = wud->on_close_ref != LUA_NOREF || wud->on_frame_ref != LUA_NOREF;
+  const int wanted = wud->on_close_ref != LUA_NOREF || wud->on_frame_ref != LUA_NOREF ||
+                     wud->on_focus_ref != LUA_NOREF || wud->on_timer_ref != LUA_NOREF;
   if (wanted && wud->self_ref == LUA_NOREF) {
     lua_pushvalue(L, 1);
     wud->self_ref = luaL_ref(L, LUA_REGISTRYINDEX);
@@ -242,10 +291,22 @@ static int l_win_set_on_frame(lua_State *L) {
   return 0;
 }
 
+static int l_win_set_on_focus(lua_State *L) {
+  luabui_Window *wud = CHECK_WIN(L, 1);
+  if (wud->win) set_window_fn(L, wud, &wud->on_focus_ref);
+  return 0;
+}
+
+static int l_win_set_on_timer(lua_State *L) {
+  luabui_Window *wud = CHECK_WIN(L, 1);
+  if (wud->win) set_window_fn(L, wud, &wud->on_timer_ref);
+  return 0;
+}
+
 /* Let go of what the window used: the callbacks' functions, this userdata's own reference and, when
  * `with_ctx`, the context (which has to outlive the native window). */
 static void drop_refs(lua_State *L, luabui_Window *wud, int with_ctx) {
-  int *refs[] = {&wud->on_close_ref, &wud->on_timer_ref, &wud->on_frame_ref, &wud->self_ref, &wud->ctx_ref};
+  int *refs[] = {&wud->on_close_ref, &wud->on_timer_ref, &wud->on_frame_ref, &wud->on_focus_ref, &wud->self_ref, &wud->ctx_ref};
   const size_t n = sizeof(refs) / sizeof(refs[0]) - (with_ctx ? 0 : 1);
   for (size_t i = 0; i < n; i++) {
     if (*refs[i] != LUA_NOREF) luaL_unref(L, LUA_REGISTRYINDEX, *refs[i]);
@@ -324,12 +385,15 @@ static const luaL_Reg win_methods[] = {
   {"gpu",          l_win_gpu},
   {"request_frame", l_win_request_frame},
   {"handle",       l_win_handle},
+  {"raster",       l_win_raster},
   {"pixel",        l_win_pixel},
   {"frames",       l_win_frames},
   {"wm",           l_win_wm},
   {"wm_get",       l_win_wm_get},
   {"on_close",     l_win_set_on_close},
   {"on_frame",     l_win_set_on_frame},
+  {"on_focus",     l_win_set_on_focus},
+  {"on_timer",     l_win_set_on_timer},
   {"free",         l_win_free},
   {"__gc",         l_win_gc},
   {"__tostring",   l_win_tostring},
