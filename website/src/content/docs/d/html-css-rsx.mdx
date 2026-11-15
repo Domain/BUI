@@ -46,7 +46,7 @@ void main() {
 }
 ```
 
-`rsx!` runs in CTFE and lowers every element to ordinary `Element` calls, so the markup has the same types and event handlers as the hand-written API. `{count}` interpolates a D expression; `onclick` takes a D delegate. `Document` runs the user-agent stylesheet, the page's `<style>` elements and an optional CSS string passed to its constructor.
+`rsx!` runs in CTFE and lowers every element to ordinary `Element` calls, so the markup has the same types and event handlers as the hand-written API. `{count}` interpolates a D expression; `onclick` takes a D delegate. Raw (`r"..."`, `x"..."`) and delimited (`q"[...]"`, `q"(...)"`, `q"{...}"`, `q"<...>"`) strings inside `{...}` are scanned with their own rules, so quotes and braces in them do not close the expression and bracket delimiters nest. `Document` runs the user-agent stylesheet, the page's `<style>` elements and an optional CSS string passed to its constructor.
 
 ## The same tree without rsx
 

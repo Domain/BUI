@@ -604,6 +604,55 @@ private void testReviewRegressions() {
     check(throwsBui({ setRoots(label, []); }), "tree type guard");
     label.free();
 
+    // A handler registered before the node is attached moves to the owning
+    // wrapper, so handlers added later do not hide it.
+    int before, after;
+    string order;
+    auto handlerRoot = new Node("frame");
+    auto handlerChild = new Node("label");
+    handlerChild.on((NodeEvent e) {
+        if (e.kind == BK_EV_CLICK) {
+            ++before;
+            order ~= "before";
+        }
+    });
+    handlerRoot.add(handlerChild);
+    handlerChild.on((NodeEvent e) {
+        if (e.kind == BK_EV_CLICK) {
+            ++after;
+            order ~= "after";
+        }
+    });
+    handlerChild.dispatch(BK_EV_CLICK, null, 0, 0);
+    check(before == 1 && after == 1 && order == "beforeafter",
+          "handlers before and after attach both run in order");
+    handlerRoot.free();
+    handlerChild.free();
+
+    // Moving a handled subtree to another parent keeps its handlers.
+    int moved;
+    auto firstRoot = new Node("frame");
+    auto secondRoot = new Node("frame");
+    auto movedNode = new Node("label");
+    movedNode.on((NodeEvent e) {
+        if (e.kind == BK_EV_CLICK) {
+            ++moved;
+        }
+    });
+    firstRoot.add(movedNode);
+    movedNode.on((NodeEvent e) {
+        if (e.kind == BK_EV_CLICK) {
+            ++moved;
+        }
+    });
+    secondRoot.add(movedNode);
+    movedNode.dispatch(BK_EV_CLICK, null, 0, 0);
+    check(moved == 2 && movedNode.parent() is secondRoot,
+          "handlers move with a reparented node");
+    firstRoot.free();
+    secondRoot.free();
+    movedNode.free();
+
     // A C-owned child gets one cached borrowed wrapper, and handlers added
     // through it see the kit's events.
     auto panel = new Node("panel");
@@ -671,6 +720,19 @@ private void testReviewRegressions() {
     auto remounted = new Document(disposablePage, "#box { color: #00ff00; }");
     check(remounted.find("#box").node !is null, "element tree remounts after dispose");
 
+    // Disposing clears node wrappers for hidden elements too. The next
+    // document skips them, so they must not keep pointing at freed nodes.
+    auto hidingPage = body_(div("x").id("hidden-box"));
+    auto hidingDocument = new Document(hidingPage);
+    auto hiddenElement = hidingDocument.find("#hidden-box");
+    check(hiddenElement !is null, "element for the hide test");
+    hiddenElement.attr("hidden", "");
+    hidingDocument.dispose();
+    auto hidingAgain = new Document(hidingPage);
+    check(hidingAgain.find("#hidden-box").node is null, "hidden element stays hidden");
+    hidingAgain.restyle();
+    hidingAgain.dispose();
+
     // `clear` detaches children so their wrappers can be released.
     auto detachRoot = new TreeItem("detach");
     auto detachChild = new TreeItem("child");
@@ -695,6 +757,48 @@ private void testReviewRegressions() {
     tree.free();
     promoted.free();
     oldParent.free();
+
+    // Promoting a selected item detaches it from the source parent; the
+    // selection keeps the wrapper alive until it is cleared or the tree goes.
+    auto sourceTree = new Node("tree");
+    auto destTree = new Node("tree");
+    auto sourceParent = new TreeItem("source");
+    auto selectedChild = new TreeItem("selected");
+    sourceParent.add(selectedChild);
+    setRoots(sourceTree, [sourceParent]);
+    select(sourceTree, selectedChild);
+    setRoots(destTree, [selectedChild]);
+    check(selectedChild.parent() is null, "promoted selection is detached");
+    setRoots(destTree, []);
+    selectedChild.free();
+    check(selectedChild.handle !is null, "selection retains the promoted item");
+    check(selected(sourceTree) is selectedChild, "source tree keeps its selection");
+    select(sourceTree, null);
+    selectedChild.free();
+    check(selectedChild.handle is null, "clearing the selection releases the item");
+    setRoots(sourceTree, []);
+    sourceTree.free();
+    destTree.free();
+    sourceParent.free();
+
+    // Promoting many siblings detaches them in one compaction pass.
+    auto batchParent = new TreeItem("batch");
+    TreeItem[] batchKids;
+    foreach (i; 0 .. 64) {
+        auto kid = new TreeItem("kid");
+        batchParent.add(kid);
+        batchKids ~= kid;
+    }
+    auto batchTree = new Node("tree");
+    setRoots(batchTree, batchKids);
+    check(batchParent.childCount() == 0, "setRoots detaches a batch of siblings");
+    check(rowCount(batchTree) == 64, "batch roots are rows");
+    setRoots(batchTree, []);
+    batchTree.free();
+    batchParent.free();
+    foreach (kid; batchKids) {
+        kid.free();
+    }
 
     // Every wrapper surface rejects an empty node the same way.
     Node empty;
@@ -809,6 +913,23 @@ private void testRsx() {
     auto rawDocument = new Document(raw);
     check(rawDocument.find("#raw").node.str("text") == r"C:\tmp\",
           "rsx raw string expression");
+
+    // Delimited q strings can contain double quotes; the scanner must stop at
+    // the matching close delimiter, not the first quote.
+    auto delimited = mixin(rsx!`
+        <div id="delimited">{q"[a \" }x]"}</div>
+    `);
+    auto delimitedDocument = new Document(delimited);
+    check(delimitedDocument.find("#delimited").node.str("text") == q"[a \" }x]",
+          "rsx delimited q string expression");
+
+    // Nested delimiters are content until the matching outer close.
+    auto nested = mixin(rsx!`
+        <div id="nested">{q"(a (b) } c)"}</div>
+    `);
+    auto nestedDocument = new Document(nested);
+    check(nestedDocument.find("#nested").node.str("text") == q"(a (b) } c)",
+          "rsx nested delimited q string expression");
 }
 
 private void testCapi() {

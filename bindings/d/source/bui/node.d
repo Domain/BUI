@@ -7,7 +7,9 @@
  *
  * A node the kit owns (a panel body, a popup, a picker part) gets one cached
  * borrowed wrapper, retained by the kit for the node's lifetime, so handlers
- * added through `parent().child(i)` see the node's events too.
+ * added through `parent().child(i)` see the node's events too. Those handlers
+ * are stored on the topmost D-owned wrapper, not on the rooted borrowed
+ * wrapper, so a handler closure cannot keep the owning tree alive.
  *
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
@@ -61,8 +63,45 @@ struct Strs {
     }
 }
 
-/// Wrap a C node: the existing wrapper when the kit has one, else a borrowed one.
-package Node wrapNode(BKNode* h) {
+/// Event handlers registered on kit-owned nodes, keyed by the node they
+/// belong to. The store lives on the topmost D-owned wrapper, so a borrowed
+/// wrapper rooted by the kit stays free of handler closures.
+private final class HandlerStore {
+    private NodeHandler[][BKNode*] byNode;
+
+    void add(BKNode* node, NodeHandler handler) {
+        byNode[node] ~= handler;
+    }
+
+    void addAll(BKNode* node, NodeHandler[] handlers) {
+        byNode[node] ~= handlers;
+    }
+
+    NodeHandler[] take(BKNode* node) {
+        auto found = node in byNode;
+        if (found is null) {
+            return null;
+        }
+        auto handlers = *found;
+        byNode.remove(node);
+        return handlers;
+    }
+
+    NodeHandler[] get(BKNode* node) {
+        auto found = node in byNode;
+        return found is null ? null : *found;
+    }
+
+    void removeTree(BKNode* node) {
+        byNode.remove(node);
+        for (int i = 0, n = BK_node_child_count(node); i < n; ++i) {
+            removeTree(BK_node_child(node, i));
+        }
+    }
+}
+
+/// The existing wrapper for a C node, owned or borrowed, if any.
+private Node wrapperAt(BKNode* h) {
     if (h is null) {
         return null;
     }
@@ -71,6 +110,17 @@ package Node wrapNode(BKNode* h) {
     }
     if (auto ref_ = BK_node_borrowed_ref(h)) {
         return cast(Node) ref_;
+    }
+    return null;
+}
+
+/// Wrap a C node: the existing wrapper when the kit has one, else a borrowed one.
+package Node wrapNode(BKNode* h) {
+    if (h is null) {
+        return null;
+    }
+    if (auto wrapper = wrapperAt(h)) {
+        return wrapper;
     }
     auto wrapper = new Node(h, false);
     BK_node_set_borrowed_ref(h, cast(void*) wrapper);
@@ -93,7 +143,9 @@ final class Node {
     private {
         bool owned;
         bool freeing;
-        NodeHandler[] handlers;
+        bool muted_;
+        bool hasHandlers_;
+        HandlerStore store_;
         Image keepImage;
         Video keepVideo;
         Object[] keepAlive_;
@@ -135,10 +187,16 @@ final class Node {
         }
         freeing = true;
         if (!owned) {
-            handlers = null;
+            // The kit may have freed the native node before this wrapper's
+            // destructor runs; never dereference `h` here. Handlers on an
+            // owning wrapper are ignored through `muted_`.
+            store_ = null;
+            hasHandlers_ = false;
+            muted_ = true;
             freeing = false;
             return;
         }
+        dropHandlers(h);
         if (auto parent = BK_node_parent(h)) {
             BK_node_remove(parent, h);
         }
@@ -157,6 +215,160 @@ final class Node {
         keepAlive_ = null;
         keepStrings_ = null;
         freeing = false;
+    }
+
+    /// The topmost D-owned wrapper above this node. Handlers live there so a
+    /// borrowed wrapper rooted by the kit does not keep the owning panel alive.
+    private Node handlerOwner() {
+        Node owner;
+        for (auto h = handle; h !is null; h = BK_node_parent(h)) {
+            if (auto ref_ = BK_node_ref(h)) {
+                owner = cast(Node) ref_;
+            }
+        }
+        return owner;
+    }
+
+    /// Move handlers registered before the node gained an owner into the
+    /// owner's store, so one list holds them and registration order survives.
+    private void moveHandlersTo(Node owner) {
+        for (auto h = handle; h !is null; h = BK_node_parent(h)) {
+            auto wrapper = wrapperAt(h);
+            if (wrapper is owner) {
+                return;
+            }
+            if (wrapper is null || wrapper.store_ is null) {
+                continue;
+            }
+            auto moved = wrapper.store_.take(handle);
+            if (moved.length) {
+                if (owner.store_ is null) {
+                    owner.store_ = new HandlerStore();
+                }
+                owner.store_.addAll(handle, moved);
+                owner.hasHandlers_ = true;
+            }
+        }
+    }
+
+    /// Remember that this node's subtree holds handlers, so moving it knows
+    /// to migrate them. Stale `true` values only cost a walk on the next move.
+    private void markHandlerAncestors() {
+        for (auto h = handle; h !is null; h = BK_node_parent(h)) {
+            if (auto wrapper = wrapperAt(h)) {
+                wrapper.hasHandlers_ = true;
+            }
+        }
+    }
+
+    /// Take this node's handlers out of their stores and keep them locally,
+    /// so a move cannot leave them in the old owner.
+    private void stashHandlers() {
+        if (handle is null) {
+            return;
+        }
+        NodeHandler[] collected;
+        for (auto h = handle; h !is null; h = BK_node_parent(h)) {
+            auto wrapper = wrapperAt(h);
+            if (wrapper is null || wrapper.store_ is null) {
+                continue;
+            }
+            auto moved = wrapper.store_.take(handle);
+            if (moved.length) {
+                collected ~= moved;
+            }
+        }
+        if (collected.length) {
+            if (store_ is null) {
+                store_ = new HandlerStore();
+            }
+            store_.addAll(handle, collected);
+        }
+    }
+
+    /// Put this node's local handlers on its current owner, if it has one.
+    private void rehomeHandlers() {
+        auto owner = handlerOwner();
+        if (owner !is null && owner !is this) {
+            moveHandlersTo(owner);
+        }
+    }
+
+    /// Snapshot the handlers of a subtree before it leaves its owner.
+    private void stashSubtreeHandlers() {
+        if (hasHandlers_ && handle !is null) {
+            stashSubtree(handle);
+        }
+    }
+
+    private static void stashSubtree(BKNode* h) {
+        if (auto wrapper = wrapperAt(h)) {
+            wrapper.stashHandlers();
+        }
+        for (int i = 0, n = BK_node_child_count(h); i < n; ++i) {
+            stashSubtree(BK_node_child(h, i));
+        }
+    }
+
+    /// Give a subtree's handlers to its new owner after a move.
+    private void rehomeSubtreeHandlers() {
+        if (hasHandlers_ && handle !is null) {
+            rehomeSubtree(handle);
+        }
+    }
+
+    private static void rehomeSubtree(BKNode* h) {
+        if (auto wrapper = wrapperAt(h)) {
+            wrapper.rehomeHandlers();
+        }
+        for (int i = 0, n = BK_node_child_count(h); i < n; ++i) {
+            rehomeSubtree(BK_node_child(h, i));
+        }
+    }
+
+    /// This node's handlers: the owning wrapper's store, then any store left
+    /// on a wrapper that gained handlers before it was attached.
+    private NodeHandler[] handlersOf() {
+        if (muted_) {
+            return null;
+        }
+        for (auto h = handle; h !is null; h = BK_node_parent(h)) {
+            if (auto wrapper = wrapperAt(h)) {
+                if (wrapper.store_ !is null) {
+                    auto found = wrapper.store_.get(handle);
+                    if (found.length) {
+                        return found;
+                    }
+                }
+            }
+        }
+        return store_ is null ? null : store_.get(handle);
+    }
+
+    /// Drop this node's and its subtree's handlers before the native node goes
+    /// away. Only an owned node reaches here; a borrowed wrapper has no say
+    /// over the kit's native node.
+    private void dropHandlers(BKNode* h) {
+        auto owner = handlerOwner();
+        if (owner !is null && owner.store_ !is null) {
+            if (owner is this) {
+                owner.store_ = null;
+            }
+            else {
+                owner.store_.removeTree(h);
+            }
+        }
+        dropSubtreeStores(h);
+    }
+
+    private static void dropSubtreeStores(BKNode* h) {
+        if (auto wrapper = wrapperAt(h)) {
+            wrapper.store_ = null;
+            wrapper.hasHandlers_ = false;
+        }
+        for (int i = 0, n = BK_node_child_count(h); i < n; ++i) {
+            dropSubtreeStores(BK_node_child(h, i));
+        }
     }
 
     /// Keep `object` alive for as long as this node holds it (custom nodes).
@@ -195,17 +407,23 @@ final class Node {
         if (child is null || child.handle is null) {
             throw new BuiException("Node.add", "no child");
         }
+        child.stashSubtreeHandlers();
         if (BK_node_add(handle, child.handle, index) == 0) {
+            child.rehomeSubtreeHandlers();
             throw new BuiException("Node.add", "the kit refused the child");
         }
+        child.rehomeSubtreeHandlers();
         return this;
     }
 
     /// Remove `child`; the child wrapper stays valid as a detached node.
     void remove(Node child) {
-        if (child !is null && child.handle !is null) {
-            BK_node_remove(handle, child.handle);
+        if (child is null || child.handle is null) {
+            return;
         }
+        child.stashSubtreeHandlers();
+        BK_node_remove(handle, child.handle);
+        child.rehomeSubtreeHandlers();
     }
 
     int childCount() const {
@@ -351,7 +569,24 @@ final class Node {
     /// Add an event handler; all handlers see every event.
     Node on(NodeHandler handler) {
         if (handler !is null) {
-            handlers ~= handler;
+            muted_ = false;
+            auto owner = handlerOwner();
+            if (owner is null) {
+                owner = this;
+            }
+            if (owner is this) {
+                if (store_ is null) {
+                    store_ = new HandlerStore();
+                }
+            }
+            else {
+                moveHandlersTo(owner);
+                if (owner.store_ is null) {
+                    owner.store_ = new HandlerStore();
+                }
+            }
+            owner.store_.add(handle, handler);
+            markHandlerAncestors();
         }
         return this;
     }
@@ -391,6 +626,7 @@ final class Node {
 
     /// The kit's `BKHost.emit` path: dispatch one event to this node's handlers.
     void dispatch(int kind, void* ref_, double a, double b) {
+        NodeHandler[] handlers = handlersOf();
         if (handlers.length == 0) {
             return;
         }

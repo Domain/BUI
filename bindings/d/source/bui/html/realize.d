@@ -95,9 +95,23 @@ final class Document {
     /// element tree stays usable: build a new `Document` to mount it again.
     void dispose() {
         unbindStateCallbacks(root_);
+        clearNodeFields(root_);
         if (rootNode_ !is null) {
             rootNode_.free();
             rootNode_ = null;
+        }
+    }
+
+    /// Drop every wrapper reference before the kit tree goes away. A hidden
+    /// element is not realised again on the next mount, so it must not keep
+    /// pointing at nodes the old document freed.
+    private static void clearNodeFields(Element element) {
+        element.kitNode_ = null;
+        element.outerNode_ = null;
+        element.flowNode_ = null;
+        element.backgroundNode_ = null;
+        foreach (child; element.children()) {
+            clearNodeFields(child);
         }
     }
 

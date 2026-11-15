@@ -205,11 +205,12 @@ final class Window {
         if (self is null || self.timerHandler is null) {
             return;
         }
+        auto context = self.context;
         try {
             self.timerHandler(id);
         }
         catch (Throwable e) {
-            self.store(e);
+            storeError(context, e);
         }
     }
 
@@ -218,11 +219,12 @@ final class Window {
         if (self is null || self.closeHandler is null) {
             return 1;
         }
+        auto context = self.context;
         try {
             return self.closeHandler() ? 1 : 0;
         }
         catch (Throwable e) {
-            self.store(e);
+            storeError(context, e);
             return 1;
         }
     }
@@ -232,11 +234,12 @@ final class Window {
         if (self is null || self.frameHandler is null) {
             return;
         }
+        auto context = self.context;
         try {
             self.frameHandler();
         }
         catch (Throwable e) {
-            self.store(e);
+            storeError(context, e);
         }
     }
 
@@ -245,15 +248,18 @@ final class Window {
         if (self is null || self.focusHandler is null) {
             return;
         }
+        auto context = self.context;
         try {
             self.focusHandler(active != 0);
         }
         catch (Throwable e) {
-            self.store(e);
+            storeError(context, e);
         }
     }
 
-    private void store(Throwable e) {
+    /// A handler may free the window; keep the Context it started with so the
+    /// exception is still reachable through `pendingError()`.
+    private static void storeError(Context context, Throwable e) {
         if (context !is null) {
             context.store(e);
         }

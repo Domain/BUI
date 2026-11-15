@@ -207,7 +207,11 @@ Markup inside `rsx!` always uses the HTML spelling, so `<select>` is fine there.
 `rsx!` parses in CTFE and lowers to ordinary `Element` calls: attributes,
 `{expression}` text and values, `onclick`/`onchange`/... delegates, boolean
 attributes, entities, comments, void tags, raw `<style>` text and custom
-elements. Dynamic attributes such as `class={names}` and `hidden={flag}`
+elements. Raw (`r"..."`, `x"..."`) and delimited (`q"[...]"`, `q"(...)"`,
+`q"{...}"`, `q"<...>"`) strings inside `{...}` are scanned with their own
+rules, so quotes and braces in them do not close the expression and bracket
+delimiters nest. Dynamic
+attributes such as `class={names}` and `hidden={flag}`
 stringify or toggle through `flagAttr`.
 
 `Document.restyle` re-runs the cascade and applies visual properties after
@@ -216,7 +220,8 @@ stringify or toggle through `flagAttr`.
 changed text leaf updates in place with `Element.setText`; a different document
 structure needs a new `Document`. `Document.dispose()` releases the realised kit
 tree and detaches its state hooks, after which the element tree can be mounted
-again.
+again. Disposing also clears every element's node wrappers first, including
+hidden elements the next document will not realise again.
 
 The subset is deliberately smaller than the Rust engine's full taffy layout: no
 flex wrapping, no media queries, no pseudo-elements, no animations and no
@@ -246,8 +251,8 @@ the kit calls in:
 it. `Context`'s input and render methods call `check()` for you, so a throwing
 host callback surfaces at the next input or render call. `Window` callbacks
 (timers, close, frame and focus) store their exceptions the same way;
-`Window.pendingError()` and `Window.check()` expose them. `Custom` and `Video`
-callbacks use the same pattern.
+`Window.pendingError()` and `Window.check()` expose them, even when the
+handler frees the window. `Custom` and `Video` callbacks use the same pattern.
 
 ## Ownership
 
@@ -259,8 +264,11 @@ is returned, so identity is preserved.
 
 A C-owned node (a panel body, a popup, a picker part) gets one cached borrowed
 wrapper. The kit retains that wrapper for the node's lifetime, so handlers
-added through `parent().child(i)` keep receiving the node's events; `free()` on
-a borrowed wrapper only drops its handlers and leaves the C node alone.
+added through `parent().child(i)` keep receiving the node's events. The
+handlers themselves live on the topmost D-owned wrapper, not on the rooted
+borrowed one, so a handler closure cannot keep the owning panel alive.
+`free()` on a borrowed wrapper only drops its handlers and leaves the C node
+alone.
 
 When a node is attached to a parent, the kit retains its wrapper through the
 reference hooks, exactly like the Python binding's `INCREF`/`DECREF`:
@@ -281,8 +289,10 @@ The same rule applies to:
   `new Raster(w, h)` owns its raster.
 - **`TreeItem`**: adding a child or making an item a root retains it. The
   parent comes from the kit, and making an item a root detaches it from its old
-  parent. `free()` does nothing while a parent or a tree still holds the item;
-  replace the tree's roots (`setRoots(tree, [])`) before freeing them.
+  parent. A tree's selection retains its item too, so promoting a selected item
+  into another tree is safe. `free()` does nothing while a parent, a tree or a
+  selection still holds the item; replace the tree's roots
+  (`setRoots(tree, [])`) before freeing them.
 - **Menu callbacks**: the kit copies the menu description and retains each
   callback through the reference hooks. The D `MenuItem` tree can be
   temporary.
@@ -439,9 +449,11 @@ default). LDC defaults to the static CRT, so `dub.json` passes
 - `examples/headless.d` — no window: render, click, read pixels.
 - `examples/rsx_page.d` — an HTML/CSS page from `rsx!` in a native window.
 - `tests/run.d` — version, nodes and properties, geometry, render/input,
-  clipboard, images, text areas, canvases, trees, borrowed wrappers, menus,
-  custom nodes, host errors, themes, icons, the CSS cascade, the HTML realiser,
-  RSX and the stable C API version.
+  clipboard, images, text areas, canvases, trees (including selection retention
+  and batched root promotion), borrowed wrappers, menus, custom nodes, host
+  errors, themes, icons, the CSS cascade, the HTML realiser (including
+  `dispose()` cleanup), RSX (including delimited `q` strings) and the stable C
+  API version.
 
 Run the suite with `dub run --config=test`. It is a normal executable, so it
 also works from CI steps that expect a process exit code.

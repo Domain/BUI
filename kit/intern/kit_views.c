@@ -512,6 +512,8 @@ struct BKTreeItem {
   BKTreeItem **kids;
   int nkids, cap;
   void *ref;
+  bool promoting; /* a root being detached in this pass */
+  bool compacted; /* this parent's kids were already compacted */
 };
 
 typedef struct TreeData {
@@ -577,21 +579,34 @@ BKTreeItem *BK_tree_item_parent(const BKTreeItem *it)
   return it->parent;
 }
 
-static void tree_item_remove(BKTreeItem *parent, int index)
+static void tree_item_detach(BKTreeItem *kid)
 {
-  BKTreeItem *kid = parent->kids[index];
-  memmove(parent->kids + index, parent->kids + index + 1,
-          sizeof(BKTreeItem *) * (size_t)(parent->nkids - index - 1));
-  parent->nkids--;
   kid->parent = NULL;
   bk_release(kid->ref); /* the parent's reference */
 }
 
+static void tree_item_compact(BKTreeItem *parent)
+{
+  int kept = 0;
+  for (int i = 0; i < parent->nkids; i++) {
+    BKTreeItem *kid = parent->kids[i];
+    if (kid->promoting) {
+      kid->promoting = false;
+      tree_item_detach(kid);
+    }
+    else {
+      parent->kids[kept++] = kid;
+    }
+  }
+  parent->nkids = kept;
+}
+
 void BK_tree_item_clear(BKTreeItem *parent)
 {
-  while (parent->nkids > 0) {
-    tree_item_remove(parent, parent->nkids - 1);
+  for (int i = 0; i < parent->nkids; i++) {
+    tree_item_detach(parent->kids[i]);
   }
+  parent->nkids = 0;
 }
 
 void BK_tree_item_add(BKTreeItem *parent, BKTreeItem *child)
@@ -695,9 +710,27 @@ static void tree_init(BKNode *n)
   n->rows = 8;
 }
 
+/* Change a tree's selection. The selection holds a reference to the item's
+ * D wrapper, so promoting the item into another tree cannot leave a pointer
+ * to a wrapper that `TreeItem.free()` is about to release. */
+static void tree_set_selected(BKNode *n, BKTreeItem *it)
+{
+  TreeData *t = TREE(n);
+  if (t->selected == it) {
+    return;
+  }
+  bk_retain(it ? it->ref : NULL);
+  bk_release(t->selected ? t->selected->ref : NULL);
+  t->selected = it;
+}
+
 static void tree_free(BKNode *n)
 {
   TreeData *t = TREE(n);
+  if (t->selected) {
+    bk_release(t->selected->ref);
+    t->selected = NULL;
+  }
   for (int i = 0; i < t->nroots; i++) {
     if (t->roots[i]->ref) {
       bk_release(t->roots[i]->ref);
@@ -717,29 +750,35 @@ void BK_tree_set_roots(BKNode *n, BKTreeItem *const *roots, int count)
   TreeData *t = TREE(n);
   for (int i = 0; i < count; i++) {
     bk_retain(roots[i]->ref);
+    roots[i]->promoting = true;
   }
+  BKTreeItem **parents = count > 0 ? (BKTreeItem **)malloc(sizeof(BKTreeItem *) * (size_t)count) : NULL;
+  int nparents = 0;
   for (int i = 0; i < count; i++) {
-    BKTreeItem *it = roots[i];
-    BKTreeItem *p = it->parent;
-    if (p) {
-      for (int j = 0; j < p->nkids; j++) {
-        if (p->kids[j] == it) {
-          tree_item_remove(p, j);
-          break;
-        }
-      }
+    BKTreeItem *p = roots[i]->parent;
+    if (p && !p->compacted) {
+      p->compacted = true;
+      parents[nparents++] = p;
     }
+  }
+  for (int i = 0; i < nparents; i++) {
+    tree_item_compact(parents[i]);
+    parents[i]->compacted = false;
+  }
+  free(parents);
+  for (int i = 0; i < count; i++) {
+    roots[i]->promoting = false;
   }
   for (int i = 0; i < t->nroots; i++) {
     if (t->roots[i]->ref) {
       bk_release(t->roots[i]->ref);
     }
   }
+  tree_set_selected(n, NULL);
   free(t->roots);
   t->roots = (BKTreeItem **)malloc(sizeof(BKTreeItem *) * (size_t)BK_MAX(1, count));
   memcpy(t->roots, roots, sizeof(BKTreeItem *) * (size_t)count);
   t->nroots = count;
-  t->selected = NULL;
   tree_flatten(n);
   bk_invalidate(n);
 }
@@ -772,10 +811,13 @@ static void tree_select(BKNode *n, int row)
 {
   TreeData *t = TREE(n);
   tree_flatten(n);
-  if (row >= 0 && row < t->nrows && t->rows[row] != t->selected) {
-    t->selected = t->rows[row];
-    bk_invalidate(n);
-    bk_emit(n, BK_EV_CHANGE, t->selected->ref, row, 0);
+  if (row >= 0 && row < t->nrows) {
+    BKTreeItem *it = t->rows[row];
+    if (it != t->selected) {
+      tree_set_selected(n, it);
+      bk_invalidate(n);
+      bk_emit(n, BK_EV_CHANGE, it->ref, row, 0);
+    }
   }
 }
 
@@ -955,8 +997,9 @@ static int tree_key(BKNode *n, BKEvent *e)
         tree_open(n, it, false, EV_SHIFT(e));
       }
       else if (it->parent) {
-        t->selected = it->parent;
-        bk_emit(n, BK_EV_CHANGE, it->parent->ref, tree_selected(n), 0);
+        BKTreeItem *parent = it->parent;
+        tree_set_selected(n, parent);
+        bk_emit(n, BK_EV_CHANGE, parent->ref, tree_selected(n), 0);
         rv_scroll_into_view(n);
       }
     }
@@ -1040,7 +1083,7 @@ BKTreeItem *BK_tree_selected(BKNode *n)
 
 void BK_tree_select(BKNode *n, BKTreeItem *it)
 {
-  TREE(n)->selected = it;
+  tree_set_selected(n, it);
   bk_invalidate(n);
 }
 
