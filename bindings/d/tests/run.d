@@ -627,6 +627,9 @@ private void testReviewRegressions() {
     check(before == 1 && after == 1 && order == "beforeafter",
           "handlers before and after attach both run in order");
     handlerRoot.free();
+    handlerChild.dispatch(BK_EV_CLICK, null, 0, 0);
+    check(before == 2 && after == 2,
+          "an owned child keeps its handlers after the parent is freed");
     handlerChild.free();
 
     // Moving a handled subtree to another parent keeps its handlers.
@@ -653,6 +656,27 @@ private void testReviewRegressions() {
     secondRoot.free();
     movedNode.free();
 
+    // Moving an intermediate ancestor keeps handlers that live further up.
+    int guarded;
+    auto guardRoot = new Node("frame");
+    auto guardMiddle = new Node("frame");
+    auto guardLeaf = new Node("label");
+    guardRoot.add(guardMiddle);
+    guardLeaf.on((NodeEvent e) {
+        if (e.kind == BK_EV_CLICK) {
+            ++guarded;
+        }
+    });
+    guardMiddle.add(guardLeaf);
+    auto guardSecond = new Node("frame");
+    guardSecond.add(guardMiddle);
+    guardLeaf.dispatch(BK_EV_CLICK, null, 0, 0);
+    check(guarded == 1, "handlers survive moving an intermediate ancestor");
+    guardSecond.free();
+    guardMiddle.free();
+    guardLeaf.free();
+    guardRoot.free();
+
     // A C-owned child gets one cached borrowed wrapper, and handlers added
     // through it see the kit's events.
     auto panel = new Node("panel");
@@ -672,11 +696,25 @@ private void testReviewRegressions() {
     panelContext.render(panelRaster, true);
     const bodyRect = body.rect();
     check(bodyRect[2] > 0 && bodyRect[3] > 0, "panel body laid out");
+    panelContext.motion(bodyRect[0] + bodyRect[2] / 2,
+                        bodyRect[1] + bodyRect[3] / 2, 0);
+    check(enters == 1, "borrowed wrapper handler runs");
+    int refreshed;
+    body.free();
+    body.on(BK_EV_ENTER, (NodeEvent) {
+        ++refreshed;
+    });
+    body.dispatch(BK_EV_ENTER, null, 0, 0);
+    check(enters == 1 && refreshed == 1,
+          "a freed borrowed wrapper does not revive its old handlers");
+    // The handler lives on the owning wrapper's store, so collecting the
+    // borrowed wrapper does not drop it.
+    panelContext.motion(0, 0, 0);
     body = null;
     GC.collect();
     panelContext.motion(bodyRect[0] + bodyRect[2] / 2,
                         bodyRect[1] + bodyRect[3] / 2, 0);
-    check(enters == 1, "borrowed wrapper handler runs");
+    check(enters == 1 && refreshed == 2, "handlers outlive the borrowed wrapper");
     panelRaster.free();
     panelContext.free();
     panel.free();
@@ -697,7 +735,11 @@ private void testReviewRegressions() {
     secondDocument.find("#box").node.dispatch(BK_EV_ENTER, null, 0, 0);
     check(secondDocument.find("#box").outerNode().geom("reqwidth") == 100,
           "state callback follows the current document");
-    assert(firstDocument !is null);
+    firstDocument.dispose();
+    check(secondDocument.find("#box").node !is null,
+          "disposing an older document leaves the newer mount");
+    secondDocument.restyle();
+    secondDocument.dispose();
 
     // Freeing a root closes the popups it owns before the C node disappears.
     auto popupRoot = new Node("frame");
@@ -719,6 +761,11 @@ private void testReviewRegressions() {
     check(disposableRoot.handle is null, "disposed root node is freed");
     auto remounted = new Document(disposablePage, "#box { color: #00ff00; }");
     check(remounted.find("#box").node !is null, "element tree remounts after dispose");
+    disposable.dispose();
+    check(remounted.find("#box").node !is null,
+          "disposing the old document again leaves the remounted nodes");
+    remounted.restyle();
+    remounted.dispose();
 
     // Disposing clears node wrappers for hidden elements too. The next
     // document skips them, so they must not keep pointing at freed nodes.
@@ -799,6 +846,84 @@ private void testReviewRegressions() {
     foreach (kid; batchKids) {
         kid.free();
     }
+
+    // Promoting a row out of an idle tree redraws the tree that lost it.
+    auto sourceShell = new Node("frame");
+    auto invalidated = new Node("tree");
+    invalidated.pack("fill", 1);
+    auto invalidatedParent = new TreeItem("parent");
+    auto invalidatedChild = new TreeItem("child");
+    invalidatedParent.add(invalidatedChild);
+    setRoots(invalidated, [invalidatedParent]);
+    sourceShell.add(invalidated);
+    auto sourceContext = new Context(sourceShell);
+    auto sourceRaster = new Raster(240, 140);
+    sourceContext.render(sourceRaster, true);
+    check(!sourceContext.needsRender(), "source tree is idle after render");
+    auto destinationShell = new Node("frame");
+    auto destination = new Node("tree");
+    destinationShell.add(destination);
+    auto destinationContext = new Context(destinationShell);
+    auto destinationRaster = new Raster(240, 140);
+    destinationContext.render(destinationRaster, true);
+    setRoots(destination, [invalidatedChild]);
+    check(sourceContext.needsRender(), "promotion invalidates the source tree");
+    setRoots(destination, []);
+    setRoots(invalidated, []);
+    sourceRaster.free();
+    destinationRaster.free();
+    sourceContext.free();
+    destinationContext.free();
+    sourceShell.free();
+    destinationShell.free();
+    invalidatedParent.free();
+    invalidatedChild.free();
+
+    // A rename keeps the item that started the edit, even when a promotion
+    // shifts the source rows while the edit is open.
+    auto renameShell = new Node("frame");
+    auto renameTree = new Node("tree");
+    renameTree.pack("fill", 1);
+    auto renameBefore = new TreeItem("before");
+    auto renameTarget = new TreeItem("target");
+    auto renameAfter = new TreeItem("after");
+    setRoots(renameTree, [renameBefore, renameTarget, renameAfter]);
+    renameShell.add(renameTree);
+    auto renameContext = new Context(renameShell);
+    auto renameRaster = new Raster(240, 140);
+    renameContext.render(renameRaster, true);
+    const targetRect = rowRect(renameTree, 1);
+    const targetX = targetRect[0] + targetRect[2] / 2;
+    const targetY = targetRect[1] + targetRect[3] / 2;
+    renameContext.press(targetX, targetY, 0);
+    renameContext.press(targetX, targetY, 0);
+    renameContext.release(targetX, targetY, 0);
+    auto renameDestShell = new Node("frame");
+    auto renameDest = new Node("tree");
+    renameDestShell.add(renameDest);
+    auto renameDestContext = new Context(renameDestShell);
+    auto renameDestRaster = new Raster(240, 140);
+    renameDestContext.render(renameDestRaster, true);
+    auto renameHost = new TreeItem("host");
+    setRoots(renameDest, [renameHost]);
+    setRoots(renameDest, [renameHost, renameBefore]);
+    renameContext.key("renamed");
+    renameContext.key("", "Return");
+    check(renameTarget.label == "renamed", "rename follows the promoted item");
+    check(renameAfter.label == "after" && renameBefore.label == "before",
+          "rename does not retarget a shifted row");
+    setRoots(renameDest, []);
+    setRoots(renameTree, []);
+    renameRaster.free();
+    renameDestRaster.free();
+    renameContext.free();
+    renameDestContext.free();
+    renameShell.free();
+    renameDestShell.free();
+    renameBefore.free();
+    renameTarget.free();
+    renameAfter.free();
+    renameHost.free();
 
     // Every wrapper surface rejects an empty node the same way.
     Node empty;

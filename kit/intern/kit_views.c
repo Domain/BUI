@@ -27,7 +27,9 @@ typedef struct RowOps {
   const char *(*text)(BKNode *n, int row);
   int (*selected)(BKNode *n);
   void (*select)(BKNode *n, int row);
+  void (*rename_begin)(BKNode *n, int row);
   void (*rename)(BKNode *n, int row, const char *text);
+  void (*rename_end)(BKNode *n);
   int (*press_row)(BKNode *n, int row, BKEvent *e); /* 1 = consumed (arrows, toggles) */
   void (*draw_row)(BKNode *n, int row, const BKRect *r, const uchar color[4]);
   /* multi-selection (selmode != 0) */
@@ -246,8 +248,12 @@ static int rv_press(BKNode *n, BKEvent *e)
 
 static void rv_begin_rename(BKNode *n, int row)
 {
+  const RowOps *ops = row_ops(n);
   n->rename_row = row;
-  bk_begin_edit(n, row_ops(n)->text(n, row), true);
+  if (ops->rename_begin) {
+    ops->rename_begin(n, row);
+  }
+  bk_begin_edit(n, ops->text(n, row), true);
 }
 
 static int rv_dbl(BKNode *n, BKEvent *e)
@@ -320,8 +326,15 @@ static void rv_finish(BKNode *n, bool confirm)
 {
   const RowOps *ops = row_ops(n);
   const int i = n->rename_row;
-  if (confirm && n->edit && n->edit->text[0] && i >= 0 && i < ops->count(n)) {
+  const bool renamed =
+    confirm && n->edit && n->edit->text[0] && i >= 0 && i < ops->count(n);
+  if (renamed) {
     ops->rename(n, i, n->edit->text);
+  }
+  if (ops->rename_end) {
+    ops->rename_end(n); /* a rename handler may free the tree */
+  }
+  if (renamed) {
     bk_emit(n, BK_EV_RENAME, NULL, i, 0);
   }
 }
@@ -471,10 +484,17 @@ static int list_set_num(BKNode *n, const char *key, double v)
   return 0;
 }
 
-static const RowOps g_list_ops = {list_count,  list_text,       list_selected,
-                                  list_select, list_rename,     NULL,
-                                  list_draw_row, list_marked,   list_mark,
-                                  list_clear_marks};
+static const RowOps g_list_ops = {
+  .count = list_count,
+  .text = list_text,
+  .selected = list_selected,
+  .select = list_select,
+  .rename = list_rename,
+  .draw_row = list_draw_row,
+  .marked = list_marked,
+  .mark = list_mark,
+  .clear_marks = list_clear_marks,
+};
 
 static int list_to_text(BKNode *n, char *buf, int size)
 {
@@ -512,6 +532,7 @@ struct BKTreeItem {
   BKTreeItem **kids;
   int nkids, cap;
   void *ref;
+  BKNode *tree; /* the tree this item was last flattened for */
   bool promoting; /* a root being detached in this pass */
   bool compacted; /* this parent's kids were already compacted */
 };
@@ -520,6 +541,7 @@ typedef struct TreeData {
   BKTreeItem **roots;
   int nroots;
   BKTreeItem *selected;
+  BKTreeItem *rename_item; /* stable target while an edit is open */
   int columns[8]; /* toggle columns: icon pairs (off, on) */
   int ncolumns;
   /* flattened rows, rebuilt on demand */
@@ -676,19 +698,28 @@ BKTreeItem *BK_tree_item_child(const BKTreeItem *it, int i)
   return (i >= 0 && i < it->nkids) ? it->kids[i] : NULL;
 }
 
-static void tree_add_rows(TreeData *t, BKTreeItem *it, int depth)
+static BKNode *tree_owner(BKTreeItem *it)
+{
+  while (it->parent) {
+    it = it->parent;
+  }
+  return it->tree;
+}
+
+static void tree_add_rows(BKNode *tree, TreeData *t, BKTreeItem *it, int depth)
 {
   if (t->nrows == t->caprows) {
     t->caprows = t->caprows ? t->caprows * 2 : 32;
     t->rows = (BKTreeItem **)realloc(t->rows, sizeof(BKTreeItem *) * (size_t)t->caprows);
     t->depth = (int *)realloc(t->depth, sizeof(int) * (size_t)t->caprows);
   }
+  it->tree = tree;
   t->rows[t->nrows] = it;
   t->depth[t->nrows] = depth;
   t->nrows++;
   if (it->expanded) {
     for (int i = 0; i < it->nkids; i++) {
-      tree_add_rows(t, it->kids[i], depth + 1);
+      tree_add_rows(tree, t, it->kids[i], depth + 1);
     }
   }
 }
@@ -699,7 +730,7 @@ static void tree_flatten(BKNode *n)
   t->nrows = 0;
   t->flat = true;
   for (int i = 0; i < t->nroots; i++) {
-    tree_add_rows(t, t->roots[i], 0);
+    tree_add_rows(n, t, t->roots[i], 0);
     t->flat = t->flat && t->roots[i]->nkids == 0;
   }
 }
@@ -724,6 +755,16 @@ static void tree_set_selected(BKNode *n, BKTreeItem *it)
   t->selected = it;
 }
 
+static void tree_clear_items(BKTreeItem *it, BKNode *tree)
+{
+  if (it->tree == tree) {
+    it->tree = NULL;
+  }
+  for (int i = 0; i < it->nkids; i++) {
+    tree_clear_items(it->kids[i], tree);
+  }
+}
+
 static void tree_free(BKNode *n)
 {
   TreeData *t = TREE(n);
@@ -731,7 +772,12 @@ static void tree_free(BKNode *n)
     bk_release(t->selected->ref);
     t->selected = NULL;
   }
+  if (t->rename_item) {
+    bk_release(t->rename_item->ref);
+    t->rename_item = NULL;
+  }
   for (int i = 0; i < t->nroots; i++) {
+    tree_clear_items(t->roots[i], n);
     if (t->roots[i]->ref) {
       bk_release(t->roots[i]->ref);
     }
@@ -749,6 +795,12 @@ void BK_tree_set_roots(BKNode *n, BKTreeItem *const *roots, int count)
 {
   TreeData *t = TREE(n);
   for (int i = 0; i < count; i++) {
+    if (roots[i]->parent) {
+      BKNode *source = tree_owner(roots[i]);
+      if (source && source != n) {
+        bk_invalidate(source); /* the source tree lost rows */
+      }
+    }
     bk_retain(roots[i]->ref);
     roots[i]->promoting = true;
   }
@@ -767,9 +819,13 @@ void BK_tree_set_roots(BKNode *n, BKTreeItem *const *roots, int count)
   }
   free(parents);
   for (int i = 0; i < count; i++) {
+    roots[i]->tree = n;
     roots[i]->promoting = false;
   }
   for (int i = 0; i < t->nroots; i++) {
+    if (t->roots[i]->tree == n) {
+      t->roots[i]->tree = NULL;
+    }
     if (t->roots[i]->ref) {
       bk_release(t->roots[i]->ref);
     }
@@ -821,9 +877,38 @@ static void tree_select(BKNode *n, int row)
   }
 }
 
+static void tree_rename_begin(BKNode *n, int row)
+{
+  TreeData *t = TREE(n);
+  tree_flatten(n);
+  BKTreeItem *it = (row >= 0 && row < t->nrows) ? t->rows[row] : NULL;
+  bk_retain(it ? it->ref : NULL);
+  if (t->rename_item) {
+    bk_release(t->rename_item->ref);
+  }
+  t->rename_item = it;
+}
+
+static void tree_rename_end(BKNode *n)
+{
+  TreeData *t = TREE(n);
+  if (t->rename_item) {
+    bk_release(t->rename_item->ref);
+    t->rename_item = NULL;
+  }
+}
+
 static void tree_rename(BKNode *n, int row, const char *text)
 {
-  bk_set_text(&TREE(n)->rows[row]->label, text);
+  TreeData *t = TREE(n);
+  BKTreeItem *it = t->rename_item;
+  if (!it) {
+    tree_flatten(n);
+    it = (row >= 0 && row < t->nrows) ? t->rows[row] : NULL;
+  }
+  if (it) {
+    bk_set_text(&it->label, text);
+  }
 }
 
 static int tree_indent(void)
@@ -959,9 +1044,20 @@ static void tree_clear_marks(BKNode *n)
   bk_invalidate(n);
 }
 
-static const RowOps g_tree_ops = {tree_count,    tree_text,   tree_selected,   tree_select,
-                                  tree_rename,   tree_press_row, tree_draw_row, tree_marked,
-                                  tree_mark,     tree_clear_marks};
+static const RowOps g_tree_ops = {
+  .count = tree_count,
+  .text = tree_text,
+  .selected = tree_selected,
+  .select = tree_select,
+  .rename_begin = tree_rename_begin,
+  .rename = tree_rename,
+  .rename_end = tree_rename_end,
+  .press_row = tree_press_row,
+  .draw_row = tree_draw_row,
+  .marked = tree_marked,
+  .mark = tree_mark,
+  .clear_marks = tree_clear_marks,
+};
 
 static int tree_drag(BKNode *n, BKEvent *e)
 {

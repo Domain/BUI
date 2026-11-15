@@ -93,13 +93,20 @@ final class Document {
 
     /// Release the kit tree and detach this document's state hooks. The
     /// element tree stays usable: build a new `Document` to mount it again.
+    /// Disposing an already disposed document does nothing, and a document
+    /// only clears the wrappers it still owns, so it cannot disturb a newer
+    /// mount of the same element tree.
     void dispose() {
-        unbindStateCallbacks(root_);
-        clearNodeFields(root_);
-        if (rootNode_ !is null) {
-            rootNode_.free();
-            rootNode_ = null;
+        if (rootNode_ is null) {
+            return;
         }
+        const bool owner = root_.onStateChange == stateHook_;
+        unbindStateCallbacks(root_);
+        if (owner) {
+            clearNodeFields(root_);
+        }
+        rootNode_.free();
+        rootNode_ = null;
     }
 
     /// Drop every wrapper reference before the kit tree goes away. A hidden
