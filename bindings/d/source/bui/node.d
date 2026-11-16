@@ -102,6 +102,12 @@ private struct HandlerEntry {
 private struct HandlerStore {
     private HandlerEntry* first;
 
+    /// True when nothing is registered here, so a subtree walk has nothing to
+    /// look up.
+    bool empty() const {
+        return first is null;
+    }
+
     private HandlerEntry* find(BKNode* node) {
         for (auto entry = first; entry !is null; entry = entry.next) {
             if (entry.node is node) {
@@ -170,6 +176,9 @@ private struct HandlerStore {
     /// tree so only live nodes are looked up: a key left by a node the kit
     /// destroyed is never read.
     void takeSubtree(BKNode* root, HandlerStore* target) {
+        if (empty) {
+            return;
+        }
         moveEntry(root, target);
         for (int i = 0, n = BK_node_child_count(root); i < n; ++i) {
             takeSubtree(BK_node_child(root, i), target);
@@ -179,6 +188,9 @@ private struct HandlerStore {
     /// Drop every entry for `root`'s subtree, over the native tree for the same
     /// reason.
     void dropSubtree(BKNode* root) {
+        if (empty) {
+            return;
+        }
         take(root);
         for (int i = 0, n = BK_node_child_count(root); i < n; ++i) {
             dropSubtree(BK_node_child(root, i));
@@ -444,8 +456,12 @@ final class Node {
     private void dropHandlers(BKNode* h) {
         auto owner = handlerOwner();
         auto store = owner is null ? &store_ : &owner.store_;
-        partitionHandlers(h, store);
-        dropSubtreeStores(h);
+        // A tree nobody registered on has nothing to look up, so skip both
+        // walks. A stale `hasHandlers_` only costs one.
+        if (hasHandlers_ || !store.empty) {
+            partitionHandlers(h, store);
+            dropSubtreeStores(h);
+        }
         if (owner is null || owner is this) {
             // This wrapper held the store, so nothing below is reachable any
             // more: whatever is left keys a node the tree no longer owns (a
