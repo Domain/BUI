@@ -277,7 +277,10 @@ alone; a later `on()` starts a fresh handler list, so handlers registered
 before `free()` do not run again. An owned child that survives its parent's
 free keeps the handlers registered for its own subtree; when the owning wrapper
 is freed each survivor takes only its own subtree's entries, so one sibling's
-handlers cannot pin another sibling through a captured handler.
+handlers cannot pin another sibling through a captured handler. Movement and
+cleanup walk the native tree, so an entry left by a node the kit destroyed
+(a closed popup) is never read back as a live node; it goes away with the
+store that holds it.
 
 When a node is attached to a parent, the kit retains its wrapper through the
 reference hooks, exactly like the Python binding's `INCREF`/`DECREF`:

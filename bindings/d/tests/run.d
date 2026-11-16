@@ -585,6 +585,16 @@ private NodeHandler captureNode(Node node) {
     };
 }
 
+private __gshared int probeTicks;
+
+/// A handler whose only state is a module-level counter, so nothing on the
+/// registering frame keeps the delegate alive: its store does.
+private NodeHandler captureTick() {
+    return (NodeEvent e) {
+        ++probeTicks;
+    };
+}
+
 /// Free R in R -> A, B while A's handler is the only reference to its flag.
 /// The caller keeps B, so one store shared by both survivors would keep A's
 /// handler (and the flag) alive; a store per survivor root lets both go.
@@ -715,22 +725,21 @@ private void testReviewRegressions() {
           "an owned child keeps its handlers after the parent is freed");
     handlerChild.free();
 
-    // A handler registered on a worker thread is reachable only through the
-    // store, so the store must keep it alive across a collection.
-    int ticks;
+    // A handler built outside this frame is reachable only through the node's
+    // store, so the store is the only thing keeping the delegate alive and the
+    // observation channel lives outside the delegate.
+    probeTicks = 0;
     Node probed;
     auto probeThread = new Thread({
         auto n = new Node("frame");
-        n.on(BK_EV_CLICK, (NodeEvent e) {
-            ++ticks;
-        });
+        n.on(BK_EV_CLICK, captureTick());
         probed = n;
     });
     probeThread.start();
     probeThread.join();
     GC.collect();
     probed.dispatch(BK_EV_CLICK, null, 0, 0);
-    check(ticks == 1, "a store keeps a handler reachable across a collection");
+    check(probeTicks == 1, "a store keeps a handler reachable across a collection");
     probed.free();
 
     // A surviving owned root keeps only its own handler store; sharing it
@@ -893,6 +902,12 @@ private void testReviewRegressions() {
     auto popupContext = new Context(popupRoot);
     popupContext.openMenu(popupRoot, [new MenuItem("One", {})]);
     check(popupContext.popupCount() == 1, "root popup opened");
+    // The handler's body does not matter here: it parks an entry in the root's
+    // store keyed by the popup's native node, which the kit destroys on close,
+    // so neither the close nor the root's free may read that key as a node.
+    popupContext.popup(0).on(BK_EV_CLICK, captureTick());
+    popupContext.closePopups();
+    check(popupContext.popupCount() == 0, "closePopups drops the popup");
     popupRoot.free();
     check(popupContext.popupCount() == 0, "freeing the root closes its popups");
     popupContext.free();

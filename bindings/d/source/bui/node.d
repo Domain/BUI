@@ -85,16 +85,6 @@ private struct HandlerEntry {
     HandlerEntry* next;
 }
 
-/// True when `node` is `root` or one of its native descendants.
-private bool inSubtree(BKNode* node, BKNode* root) {
-    for (auto h = node; h !is null; h = BK_node_parent(h)) {
-        if (h is root) {
-            return true;
-        }
-    }
-    return false;
-}
-
 /// Event handlers registered on kit-owned nodes, keyed by the node they
 /// belong to. The store lives on the topmost D-owned wrapper, so a borrowed
 /// wrapper rooted by the kit stays free of handler closures and an attached
@@ -104,6 +94,11 @@ private bool inSubtree(BKNode* node, BKNode* root) {
 /// survivor its entries is a pointer move: `Node.free()` also runs from the GC
 /// finalizer, where allocating is not allowed. A block per handled node also
 /// keeps one store from pinning another store's handler closures.
+///
+/// A key can outlive its native node: the kit destroys a popup without a word
+/// to D, so the entry stays behind. Lookups only compare the pointer, and the
+/// subtree moves below walk the live native tree instead of the entries, so a
+/// dead key is never dereferenced.
 private struct HandlerStore {
     private HandlerEntry* first;
 
@@ -158,30 +153,35 @@ private struct HandlerStore {
         return entry is null ? HandlerSet.init : entry.set;
     }
 
-    /// Move the entries for `root`'s subtree into `target` as they are.
-    void moveTreeTo(BKNode* root, HandlerStore* target) {
-        for (auto p = &first; *p !is null;) {
-            auto entry = *p;
-            if (inSubtree(entry.node, root)) {
+    /// Move the entry for `node`, if there is one, into `target`.
+    private void moveEntry(BKNode* node, HandlerStore* target) {
+        for (auto p = &first; *p !is null; p = &(*p).next) {
+            if ((*p).node is node) {
+                auto entry = *p;
                 *p = entry.next;
                 entry.next = target.first;
                 target.first = entry;
-            }
-            else {
-                p = &entry.next;
+                return;
             }
         }
     }
 
-    /// Drop the entries for `root`'s subtree.
-    void dropTree(BKNode* root) {
-        for (auto p = &first; *p !is null;) {
-            if (inSubtree((*p).node, root)) {
-                *p = (*p).next;
-            }
-            else {
-                p = &(*p).next;
-            }
+    /// Move every entry for `root`'s subtree into `target`, walking the native
+    /// tree so only live nodes are looked up: a key left by a node the kit
+    /// destroyed is never read.
+    void takeSubtree(BKNode* root, HandlerStore* target) {
+        moveEntry(root, target);
+        for (int i = 0, n = BK_node_child_count(root); i < n; ++i) {
+            takeSubtree(BK_node_child(root, i), target);
+        }
+    }
+
+    /// Drop every entry for `root`'s subtree, over the native tree for the same
+    /// reason.
+    void dropSubtree(BKNode* root) {
+        take(root);
+        for (int i = 0, n = BK_node_child_count(root); i < n; ++i) {
+            dropSubtree(BK_node_child(root, i));
         }
     }
 
@@ -446,6 +446,12 @@ final class Node {
         auto store = owner is null ? &store_ : &owner.store_;
         partitionHandlers(h, store);
         dropSubtreeStores(h);
+        if (owner is null || owner is this) {
+            // This wrapper held the store, so nothing below is reachable any
+            // more: whatever is left keys a node the tree no longer owns (a
+            // popup the kit destroyed) or one it never did.
+            store.drop();
+        }
     }
 
     /// Hand each detached D-owned child of `h` the entries for its own subtree,
@@ -454,7 +460,7 @@ final class Node {
     /// handler closures alive.
     private static void partitionHandlers(BKNode* h, HandlerStore* store) {
         handOffSurvivors(h, store);
-        store.dropTree(h);
+        store.dropSubtree(h);
     }
 
     private static void handOffSurvivors(BKNode* h, HandlerStore* store) {
@@ -471,7 +477,7 @@ final class Node {
                 continue;
             }
             wrapper.store_.drop();
-            store.moveTreeTo(child, &wrapper.store_);
+            store.takeSubtree(child, &wrapper.store_);
         }
     }
 
