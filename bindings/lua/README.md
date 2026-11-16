@@ -75,15 +75,18 @@ ctx:key("a", "a", 0)
 | Group | Prefix | Examples |
 |-------|--------|---------|
 | Events | `EV_` | `EV_CLICK`, `EV_CHANGE`, `EV_CALL`, `EV_KEY`, `EV_WHEEL` |
-| Cursors | `CURSOR_` | `CURSOR_DEFAULT`, `CURSOR_HAND`, `CURSOR_TEXT` |
-| Geometry | `GEOM_` | `GEOM_PACK`, `GEOM_GRID`, `GEOM_PLACE` |
+| Custom nodes | `CUSTOM_` | `CUSTOM_PRESS`, `CUSTOM_MOTION`, `CUSTOM_KEY`, `CUSTOM_FOCUS` |
+| Cursors | `CURSOR_` | `CURSOR_DEFAULT`, `CURSOR_HAND`, `CURSOR_TEXT`, `CURSOR_EW` |
+| Geometry | `GEOM_`, `ANCHOR_` | `GEOM_PACK`, `GEOM_GRID`, `ANCHOR_N`, `ANCHOR_E` |
 | Modifiers | `MOD_` | `MOD_SHIFT`, `MOD_CTRL`, `MOD_ALT` |
-| Image formats | `IMAGE_` | `IMAGE_PNG`, `IMAGE_JPEG`, `IMAGE_SVG` |
+| Image formats | `IMAGE_` | `IMAGE_PNG`, `IMAGE_JPEG`, `IMAGE_WEBP`, `IMAGE_SVG`, `IMAGE_QOI` |
 | Object-fit | `FIT_` | `FIT_FILL`, `FIT_CONTAIN`, `FIT_COVER` |
-| Widget types | `WIDGET_` | `WIDGET_BUTTON`, `WIDGET_SLIDER`, `WIDGET_LABEL` |
-| Widget states | `WS_` | `WS_HOVER`, `WS_PRESSED`, `WS_SELECTED` |
+| Widget types | `WIDGET_` | `WIDGET_BUTTON`, `WIDGET_SLIDER`, `WIDGET_LABEL`, `WIDGET_TAB` |
+| Widget states | `WS_` | `WS_HOVER`, `WS_PRESSED`, `WS_SELECTED`, `WS_OPEN`, `WS_MIXED` |
 | Video states | `VIDEO_` | `VIDEO_PLAYING`, `VIDEO_PAUSED`, `VIDEO_ENDED` |
-| Canvas items | `ITEM_` | `ITEM_RECT`, `ITEM_OVAL`, `ITEM_LINE`, `ITEM_TEXT` |
+| Canvas items | `ITEM_` | `ITEM_RECT`, `ITEM_OVAL`, `ITEM_LINE`, `ITEM_TEXT`, `ITEM_EFFECT` |
+| Text flags | `FONT_` | `FONT_BOLD`, `FONT_ITALIC`, `FONT_UNDERLINE` |
+| IME | `IME_` | `IME_COMPOSITION_START`, `IME_COMPOSITION`, `IME_COMPOSITION_END` |
 
 ## Node types
 
@@ -126,6 +129,109 @@ ctx:open_pie({{text = "W", fn = w}, {text = "E", fn = e}}, "Direction")
 `fn` callbacks live in the Lua registry for exactly as long as the kit holds a
 copy of the item (menu button, open popup, search filter) — they are released
 automatically when the items are replaced or the node/context is freed.
+
+## Canvas
+
+A `canvas` node holds items drawn in paint order (Tk's Canvas, QPainter). Items
+are plain tables; `canvas_set` inserts or replaces by `id`, `canvas_add` appends,
+`canvas_put(i, item)` overwrites for a host that rebuilds the list every frame,
+`canvas_truncate(n)` drops the rest, `canvas_delete(id)` (id < 0: all) and
+`canvas_raise(id, to_top)` reorder, `canvas_count()` counts:
+
+```lua
+local cnv = bui.Node("canvas")
+cnv:canvas_set{id = 1, type = bui.ITEM_RECT, coords = {4, 4, 120, 60},
+               fill = {0.2, 0.4, 0.8, 1}, outline = {0, 0, 0, 1}, width = 2}
+cnv:canvas_add{type = bui.ITEM_TEXT, coords = {10, 30}, text = "hello",
+               size = 14, text_flags = bui.FONT_BOLD, anchor = bui.ANCHOR_W}
+cnv:canvas_add{type = bui.ITEM_IMAGE, coords = {0, 0, 40, 40},
+               src = "icon.png", fit = bui.FIT_CONTAIN}  -- or rgba/imbuf/video (borrowed)
+```
+
+`bui.effect_create(name, source, n_inputs, n_floats)` compiles an application
+pixel shader (one portable `vec4 effect(vec2 p)` dialect) that an `ITEM_EFFECT`
+canvas item runs on the GPU renderers, sampling its BUI-texture inputs and
+reading `effect_floats` (the fallback `src`/`rgba`/`imbuf`/`video` draws where
+the GPU cannot run it):
+
+```lua
+local id = bui.effect_create("wave", [[
+  vec4 effect(vec2 p) {
+    float k = sin((p.y + U[0]) * 0.1) * 0.5 + 0.5;
+    return vec4(k, k * 0.5, 1.0 - k, 1.0);
+  }
+]], 0, 1)
+cnv:canvas_set{id = 9, type = bui.ITEM_EFFECT, coords = {0, 0, 200, 80},
+               effect = id, effect_floats = {time}, src = "wave_fallback.png"}
+-- bui.effect_error(id) is the compile log; bui.effect_free(id) when done.
+```
+
+## Custom nodes
+
+A `custom` node hands drawing and input to the script: `custom_set` takes
+`{natural_w, natural_h}` and the callbacks `on_event(self, e)`, `on_frame(self)`,
+`on_draw(self, raster, x, y, w, h)` and `on_free(self)`. The event table carries
+`type` (`bui.CUSTOM_PRESS`, `..._RELEASE`, `..._MOTION`, `..._LEAVE`,
+`..._WHEEL`, `..._KEY`, `..._KEYUP`, `..._FOCUS`, `..._BLUR`), `x`, `y`,
+`button`, `mods`, `clicks`, `wheel_x`, `wheel_y`, `text` and `keysym`.
+`on_event` returns true when it used the event (keys it ignores reach the kit's
+shortcuts). Draw with `bui.draw_widget(raster, spec)` — one of Blender's widgets,
+the same drawing the kit's own nodes use (`bui.WIDGET_BUTTON`, `bui.WS_HOVER`,
+`bui.CORNERS_ALL`, ...); `win:raster()` is the same handle.
+
+```lua
+local cn = bui.Node("custom")
+cn:custom_set{
+  natural_w = 120, natural_h = 40,
+  on_event = function(self, e)
+    if e.type == bui.CUSTOM_PRESS then print("pressed at", e.x, e.y); return true end
+  end,
+  on_draw = function(self, raster, x, y, w, h)
+    bui.draw_widget(raster, {kind = bui.WIDGET_BUTTON, rect = {x, y, w, h},
+                             state = bui.WS_HOVER, text = "mine"})
+  end,
+}
+```
+
+## Images, video and animation
+
+`bui.image_decode(data)`, `bui.image_load(path)`, `bui.image_from_rgba(bytes, w, h)`
+and `bui.image_from_argb(argb_string, w, h)` (what `imbuf:pixels()` returns) make
+ImBufs. `imbuf:texture([frame])` puts a frame in a `BUI_texture` (for GPU effect
+inputs; free with `bui.texture_free`), and `imbuf:texture_update(frame, tex)`
+replaces one in place. `bui.Video(src)` plays; `video:set_listener(fn)` is called
+on every state change with `(video, state)` and `video:texture(tex, max_w, max_h)`
+is the current frame as a texture (calling it each frame keeps it playing).
+`bui.Anim(bytes, max_w, max_h)` steps a GIF or animated WebP one frame at a time:
+
+```lua
+local anim = bui.Anim(gif_bytes, 128, 128)
+local w, h, loops, frames = anim:info()
+local ib, delay_ms = anim:next()   -- nil at the end
+```
+
+## Beyond the widgets
+
+- `bui.set_font_size(points)` / `bui.font_size()`, `bui.set_text_shadow(on)` /
+  `bui.text_shadow()`, `bui.text_width("Hello")` in pixels.
+- `bui.theme_mode()`, `bui.theme_generation()` (rises with every theme change),
+  `bui.theme_ignored()`, and a theme's **own keys** (colors and numbers BUI has
+  no field for) read back with `bui.theme_color(key)` / `bui.theme_value(key)`.
+- `bui.file_dialog{title, mode, dir, file, filters, multiple}` runs Blender's
+  File Browser in its own native window until answered and returns the chosen
+  paths (empty when cancelled).
+- `bui.recent_searches_enable/clear/load/save` rank menu search with Blender's
+  recent searches.
+- IME: `ctx:ime_event(kind, {result, composite, cursor_pos, sel_start, sel_end})`,
+  `ctx:ime_state()` and `ctx:ime_composing()` — Blender's composition model for
+  a CJK keyboard.
+- `ctx:configure(w, h)` lays out and reports the geometry before the first draw
+  at a new size; `node:ctx()` finds the context a node is shown in.
+- Waking the loop from other threads: `bui.wake_init(fn)` (fn runs on the loop's
+  thread), `bui.wake()`, `bui.set_keep_alive(on)`, and `bui.set_stop_check(fn)`
+  which `bui.run()` polls after every message.
+- Windows: `win:on_focus(fn)` (fn(win, active)) and `win:on_timer(fn)`
+  (fn(win, id)) complete `on_close` / `on_frame`.
 
 ## Animation (`bui.gsap`, `bui.motion`)
 

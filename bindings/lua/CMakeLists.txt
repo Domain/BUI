@@ -209,4 +209,9 @@ if(BUI_BUILD_TESTS AND NOT BUI_LUA_ROCK)
     COMMAND bui-lua ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_filebrowser.lua
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
   set_tests_properties(bui_lua_filebrowser PROPERTIES TIMEOUT 30)
+
+  add_test(NAME bui_lua_kit
+    COMMAND bui-lua ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_kit.lua
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+  set_tests_properties(bui_lua_kit PROPERTIES TIMEOUT 30)
 endif()

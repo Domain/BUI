@@ -32,11 +32,16 @@ win:render_now() -- a freed context would crash here
 -- the callbacks take functions, and clear with nothing
 win:on_close(function(w) return false end)
 win:on_frame(function(w) end)
+win:on_focus(function(w, active) end)
+win:on_timer(function(w, id) end)
 win:on_close(nil)
 win:on_frame(nil)
+win:on_focus(nil)
+win:on_timer(nil)
 win:on_frame(function(w) end)
 for _ = 1, 3 do collectgarbage("collect") end
 check(win:is_open(), "garbage collection does not take the window")
+check(type(win:raster()) == "userdata", "raster() returns the window's raster handle")
 
 -- freeing twice is harmless, and the callbacks' references go with the window
 win:free()

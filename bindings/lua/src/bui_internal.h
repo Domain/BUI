@@ -32,6 +32,7 @@ typedef struct {
   int on_close_ref;  /* LUA_NOREF if not set */
   int on_timer_ref;  /* LUA_NOREF if not set */
   int on_frame_ref;  /* LUA_NOREF if not set */
+  int on_focus_ref;  /* LUA_NOREF if not set */
   int self_ref;      /* this userdata, while a callback needs to be given it: LUA_NOREF otherwise */
   int ctx_ref;       /* the Context the window shows: it must outlive the window */
   int depth;         /* callbacks of this window running right now: the backend is using the window */
@@ -48,7 +49,13 @@ typedef struct {
 
 typedef struct {
   BKVideo *video;
+  int listener_ref;  /* the state listener function: LUA_NOREF if not set */
+  int self_ref;      /* this userdata, while the listener runs: LUA_NOREF otherwise */
 } luabui_Video;
+
+typedef struct {
+  BKAnim *anim;
+} luabui_Anim;
 
 /* ------------------------------------------------------------------ */
 /* Registry key names (metatables + node map)                         */
@@ -60,8 +67,10 @@ typedef struct {
 #define LUABUI_TREEITEM_MT  "bui.TreeItem"
 #define LUABUI_IMBUF_MT     "bui.ImBuf"
 #define LUABUI_VIDEO_MT     "bui.Video"
+#define LUABUI_ANIM_MT      "bui.Anim"
 #define LUABUI_NODE_MAP      "bui._node_map"
 #define LUABUI_TREEITEM_MAP  "bui._treeitem_map"
+#define LUABUI_CTX_MAP       "bui._ctx_map"
 #define LUABUI_TIMER_QUEUE   "bui._timer_queue"
 
 /* ------------------------------------------------------------------ */
@@ -74,6 +83,7 @@ typedef struct {
 #define CHECK_TREEITEM(L, idx)((luabui_TreeItem *)luaL_checkudata(L, idx, LUABUI_TREEITEM_MT))
 #define CHECK_IMBUF(L, idx)   ((luabui_ImBuf *)luaL_checkudata(L, idx, LUABUI_IMBUF_MT))
 #define CHECK_VIDEO(L, idx)   ((luabui_Video *)luaL_checkudata(L, idx, LUABUI_VIDEO_MT))
+#define CHECK_ANIM(L, idx)    ((luabui_Anim *)luaL_checkudata(L, idx, LUABUI_ANIM_MT))
 
 /* ------------------------------------------------------------------ */
 /* Registration functions                                             */
@@ -85,6 +95,10 @@ void luabui_register_window(lua_State *L);
 void luabui_register_treeitem(lua_State *L);
 void luabui_register_imbuf(lua_State *L);
 void luabui_register_video(lua_State *L);
+void luabui_register_anim_ud(lua_State *L);
+
+/* Push the Lua wrapper of a BKNode* (made on first use), or nil for NULL. Returns 1 if on the stack. */
+int luabui_push_node(lua_State *L, BKNode *node);
 
 /* ------------------------------------------------------------------ */
 /* Node map helpers (BKNode* <-> Lua userdata)                        */
@@ -113,6 +127,14 @@ void luabui_unmap_treeitem(lua_State *L, BKTreeItem *item);
 void luabui_nullify_treeitem(lua_State *L, BKTreeItem *item);
 
 /* ------------------------------------------------------------------ */
+/* Context map helpers (BKContext* <-> Lua userdata)                   */
+/* ------------------------------------------------------------------ */
+
+void luabui_map_ctx(lua_State *L, BKContext *ctx, int ud_idx);
+int  luabui_lookup_ctx(lua_State *L, BKContext *ctx);
+void luabui_unmap_ctx(lua_State *L, BKContext *ctx);
+
+/* ------------------------------------------------------------------ */
 /* Host callbacks (implemented in bui_context.c)                      */
 /* ------------------------------------------------------------------ */
 
@@ -129,6 +151,9 @@ void luabui_register_anim(lua_State *L);
 
 /* Install the engine ref hooks against this state (called from luaopen). */
 void luabui_set_ref_state(lua_State *L);
+
+/* The module's Lua state (set at load): callbacks that run on the UI thread call into it. */
+lua_State *luabui_module_state(void);
 
 /* ------------------------------------------------------------------ */
 /* Known numeric property names (for node:get() dispatch)             */
@@ -160,4 +185,7 @@ BUI_LUA_ENTRY int luaopen__bui(lua_State *L); /* the loadable module's name: _bu
 /* Factory functions (defined in bui_image.c) */
 int l_image_decode(lua_State *L);
 int l_image_load(lua_State *L);
+int l_image_from_rgba(lua_State *L);
+int l_image_from_argb(lua_State *L);
 int l_video_new(lua_State *L);
+int l_anim_open(lua_State *L);
