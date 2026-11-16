@@ -563,23 +563,36 @@ private void testReviewFixes() {
     check(first.num("value") == 0 && second.num("value") == 1, "radio group exclusive");
 }
 
-/// Free R in R -> C -> G while C holds a handler that captures C. The kit
-/// keeps G alive for as long as C does, so returning G shows whether C is
-/// collectable once the caller drops it. A thread gives the probe a stack the
-/// main thread's collector no longer scans, so the check is deterministic.
-private Node handlerRetentionProbe() {
+private __gshared bool siblingHandlerCollected;
+
+private final class CollectFlag {
+    ~this() {
+        siblingHandlerCollected = true;
+    }
+}
+
+/// Free R in R -> A, B while A holds a handler that captures a flag. The
+/// caller keeps B, so one store shared by both survivors would keep A's
+/// handler (and the flag) alive; a store per survivor root lets both go.
+/// A thread gives the probe a stack the main collector no longer scans.
+private Node siblingRetentionProbe() {
     Node survivor;
     auto thread = new Thread({
         auto root = new Node("frame");
-        auto child = new Node("frame");
-        auto grandchild = new Node("label");
-        root.add(child);
-        child.add(grandchild);
-        child.on(BK_EV_CLICK, (NodeEvent) {
-            child.set("text", "tick");
+        auto first = new Node("frame");
+        auto sibling = new Node("frame");
+        root.add(first);
+        root.add(sibling);
+        auto flag = new CollectFlag();
+        first.on(BK_EV_CLICK, (NodeEvent) {
+            if (flag !is null) {
+                first.set("text", "tick");
+            }
         });
         root.free();
-        survivor = grandchild;
+        survivor = sibling;
+        first = null;
+        flag = null;
     });
     thread.start();
     thread.join();
@@ -656,13 +669,14 @@ private void testReviewRegressions() {
           "an owned child keeps its handlers after the parent is freed");
     handlerChild.free();
 
-    // A surviving owned root keeps its own handler store; sharing it with the
-    // whole subtree would let a kit-retained leaf pin the root through a
-    // captured handler, so the root could never be collected.
-    auto surviving = handlerRetentionProbe();
+    // A surviving owned root keeps only its own handler store; sharing it
+    // with a sibling would keep an unrelated sibling's handlers, and anything
+    // they capture, alive for as long as the survivor lives.
+    siblingHandlerCollected = false;
+    auto surviving = siblingRetentionProbe();
     GC.collect();
-    check(surviving.parent() is null,
-          "a surviving owned root does not pin its subtree");
+    check(siblingHandlerCollected,
+          "a surviving sibling does not pin another survivor's handlers");
     surviving.free();
 
     // Moving a handled subtree to another parent keeps its handlers.
@@ -1001,6 +1015,10 @@ private void testReviewRegressions() {
     auto shiftShell = new Node("frame");
     auto shiftTree = new Node("tree");
     shiftTree.pack("fill", 1);
+    int renameEvents;
+    shiftTree.on(BK_EV_RENAME, (NodeEvent) {
+        ++renameEvents;
+    });
     auto shiftParent = new TreeItem("parent");
     auto shiftMiddle = new TreeItem("middle");
     auto shiftTarget = new TreeItem("target");
@@ -1031,6 +1049,25 @@ private void testReviewRegressions() {
     check(shiftTarget.label == "shifted",
           "rename keeps the retained target past its old row index");
     check(shiftMiddle.label == "middle", "rename does not retarget the new row");
+    check(renameEvents == 1, "rename reports its source row");
+
+    // A target promoted out of the source during the edit still gets the new
+    // label, but the source has no row to report, so it emits no event.
+    const awayRect = rowRect(shiftTree, 1);
+    const awayX = awayRect[0] + awayRect[2] / 2;
+    const awayY = awayRect[1] + awayRect[3] / 2;
+    shiftContext.press(awayX, awayY, 0);
+    shiftContext.press(awayX, awayY, 0);
+    shiftContext.release(awayX, awayY, 0);
+    setRoots(shiftDest, [shiftTarget]);
+    check(rowCount(shiftTree) == 1, "promotion removes the rename target");
+    shiftContext.key("away");
+    shiftContext.key("", "Return");
+    check(shiftTarget.label == "away",
+          "rename still updates a target promoted out of the tree");
+    check(renameEvents == 1, "a promoted rename target reports no source row");
+    check(rowCount(shiftTree) == 1, "the source keeps its remaining row");
+
     setRoots(shiftDest, []);
     setRoots(shiftTree, []);
     shiftRaster.free();

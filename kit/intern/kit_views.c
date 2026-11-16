@@ -833,7 +833,10 @@ void BK_tree_set_roots(BKNode *n, BKTreeItem *const *roots, int count)
   }
   free(parents);
   for (int i = 0; i < t->nroots; i++) {
-    tree_clear_items(t->roots[i], n); /* every row that leaves this tree */
+    /* A root that stays in this tree keeps its hidden descendants' cache. */
+    if (!t->roots[i]->promoting) {
+      tree_clear_items(t->roots[i], n);
+    }
     if (t->roots[i]->ref) {
       bk_release(t->roots[i]->ref);
     }
@@ -926,10 +929,10 @@ static bool tree_rename(BKNode *n, int row, const char *text)
   for (int i = 0; i < t->nrows; i++) {
     if (t->rows[i] == it) {
       n->rename_row = i; /* the event reports the row's current position */
-      break;
+      return true;
     }
   }
-  return true;
+  return false; /* the item left this tree during the edit */
 }
 
 static int tree_indent(void)

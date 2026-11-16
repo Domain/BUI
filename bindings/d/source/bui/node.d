@@ -8,8 +8,10 @@
  * A node the kit owns (a panel body, a popup, a picker part) gets one cached
  * borrowed wrapper, retained by the kit for the node's lifetime, so handlers
  * added through `parent().child(i)` see the node's events too. Those handlers
- * are stored on the topmost D-owned wrapper, not on the rooted borrowed
- * wrapper, so a handler closure cannot keep the owning tree alive.
+ * are stored on the nearest D-owned wrapper, not on a rooted borrowed wrapper,
+ * so a handler closure cannot keep the owning tree alive. A D-owned node keeps
+ * its own store, so an owned child that survives its parent's free needs no
+ * store hand-off and cannot pin a sibling through a captured handler.
  *
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
@@ -83,8 +85,9 @@ private struct HandlerEntry {
 }
 
 /// Event handlers registered on kit-owned nodes, keyed by the node they
-/// belong to. The store lives on the topmost D-owned wrapper, so a borrowed
-/// wrapper rooted by the kit stays free of handler closures.
+/// belong to. The store lives on the nearest D-owned wrapper, so a borrowed
+/// wrapper rooted by the kit stays free of handler closures and keeps no
+/// handlers for a sibling's subtree.
 ///
 /// A flat array keeps removal allocation-free: `Node.free()` also runs from
 /// the GC finalizer, where allocating is not allowed. Handler lists are short.
@@ -289,16 +292,16 @@ final class Node {
         freeing = false;
     }
 
-    /// The topmost D-owned wrapper above this node. Handlers live there so a
-    /// borrowed wrapper rooted by the kit does not keep the owning panel alive.
+    /// The nearest D-owned wrapper at or above this node. Handlers live there
+    /// so a borrowed wrapper rooted by the kit does not keep the owning tree
+    /// alive, and so every owned wrapper keeps only its own subtree's handlers.
     private Node handlerOwner() {
-        Node owner;
         for (auto h = handle; h !is null; h = BK_node_parent(h)) {
             if (auto ref_ = BK_node_ref(h)) {
-                owner = cast(Node) ref_;
+                return cast(Node) ref_;
             }
         }
-        return owner;
+        return null;
     }
 
     /// Move handlers registered before the node gained an owner into the
@@ -365,24 +368,6 @@ final class Node {
         }
     }
 
-    /// A D-owned child survives its parent's native free, so point each
-    /// detached survivor root at the store that still holds its handlers and
-    /// stop there: a surviving root owns the wrappers below it, and sharing
-    /// with them would let a kit-retained descendant pin the root through a
-    /// handler closure. Kit-owned nodes stay part of the tree being freed, so
-    /// their surviving descendants are still found.
-    private static void shareStoreWithSurvivors(BKNode* h, HandlerStore store) {
-        for (int i = 0, n = BK_node_child_count(h); i < n; ++i) {
-            auto child = BK_node_child(h, i);
-            if (BK_node_ref(child) is null) {
-                shareStoreWithSurvivors(child, store);
-            }
-            else if (auto wrapper = wrapperAt(child)) {
-                wrapper.store_ = store;
-            }
-        }
-    }
-
     /// Put this node's local handlers on its current owner, if it has one.
     private void rehomeHandlers() {
         auto owner = handlerOwner();
@@ -445,11 +430,11 @@ final class Node {
 
     /// Drop this node's and its subtree's handlers before the native node goes
     /// away. Only an owned node reaches here; a borrowed wrapper has no say
-    /// over the kit's native node.
+    /// over the kit's native node. Each owned survivor keeps its own store, so
+    /// there is nothing to hand over.
     private void dropHandlers(BKNode* h) {
         auto owner = handlerOwner();
         if (owner !is null && owner.store_ !is null) {
-            shareStoreWithSurvivors(h, owner.store_);
             owner.store_.removeTree(h);
             if (owner is this) {
                 store_ = null;

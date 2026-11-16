@@ -269,14 +269,14 @@ is returned, so identity is preserved.
 A C-owned node (a panel body, a popup, a picker part) gets one cached borrowed
 wrapper. The kit retains that wrapper for the node's lifetime, so handlers
 added through `parent().child(i)` keep receiving the node's events. The
-handlers themselves live on the topmost D-owned wrapper, not on the rooted
+handlers themselves live on the nearest D-owned wrapper, not on a rooted
 borrowed one, so a handler closure cannot keep the owning panel alive.
 `free()` on a borrowed wrapper only drops its handlers and leaves the C node
 alone; a later `on()` starts a fresh handler list, so handlers registered
 before `free()` do not run again. An owned child that survives its parent's
-free keeps the handlers registered for its own subtree; each detached survivor
-gets its own store, so a kit-retained descendant cannot pin the rest of the
-subtree through a captured handler.
+free keeps the handlers registered for its own subtree; each survivor keeps its
+own store, so one sibling's handlers cannot pin another sibling through a
+captured handler.
 
 When a node is attached to a parent, the kit retains its wrapper through the
 reference hooks, exactly like the Python binding's `INCREF`/`DECREF`:
@@ -300,11 +300,12 @@ The same rule applies to:
   parent. A tree's selection and an open rename retain their item too, so
   promoting a selected or renamed item into another tree is safe. A rename
   still edits the item that started it after `setRoots` shifts or shrinks the
-  source rows, and `free()` does nothing while a parent, a tree, a selection or
-  an edit still holds the item. Promoting a row invalidates the source tree so
-  it redraws, and removing roots clears the whole removed subtree's cached
-  ownership before the tree can go away. Replace the tree's roots
-  (`setRoots(tree, [])`) before freeing them.
+  source rows; if the item has left the source, its new label sticks but the
+  source emits no rename event, since there is no row to report. `free()` does
+  nothing while a parent, a tree, a selection or an edit still holds the item.
+  Promoting a row invalidates the source tree so it redraws, and removing roots
+  clears the whole removed subtree's cached ownership before the tree can go
+  away. Replace the tree's roots (`setRoots(tree, [])`) before freeing them.
 - **Menu callbacks**: the kit copies the menu description and retains each
   callback through the reference hooks. The D `MenuItem` tree can be
   temporary.
@@ -462,10 +463,11 @@ default). LDC defaults to the static CRT, so `dub.json` passes
 - `examples/rsx_page.d` — an HTML/CSS page from `rsx!` in a native window.
 - `tests/run.d` — version, nodes and properties, geometry, render/input,
   clipboard, images, text areas, canvases, trees (including selection and
-  rename retention across shifted rows, batched root promotion, source-tree
-  invalidation and subtree ownership cleanup), borrowed wrappers and handler
-  invalidation, surviving owned children, menus, custom nodes, host errors,
-  themes, icons, the CSS cascade, the HTML realiser (including repeat
+  rename retention across shifted rows and a promoted target without a source
+  row, batched root promotion, source-tree invalidation and subtree ownership
+  cleanup), borrowed wrappers and handler invalidation, surviving owned
+  children (including sibling handler isolation), menus, custom nodes, host
+  errors, themes, icons, the CSS cascade, the HTML realiser (including repeat
   `dispose()` and a failed remount), RSX (including delimited `q` strings) and
   the stable C API version.
 
