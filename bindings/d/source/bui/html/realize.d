@@ -26,6 +26,13 @@ import bui.node : Node, NodeEvent;
 import bui.theme : scale, themeColor;
 import bui.video : Video;
 
+/// A state hook installed by a document, with the hook it replaced. A failed
+/// mount restores these so the previous document keeps owning the elements.
+private struct HookBinding {
+    Element element;
+    void delegate() previous;
+}
+
 /// One realised document: a CSS cascade over an `Element` tree, mounted as a
 /// kit node tree.
 final class Document {
@@ -67,22 +74,33 @@ final class Document {
         stateHook_ = () {
             restyle();
         };
-        bindStateCallbacks(root_);
         computeStyles(root_, base_);
-        rootNode_ = realizeElement(root_);
-        if (rootNode_ is null) {
-            throw new BuiException("Document", "the root element is not rendered");
+        HookBinding[] bindings;
+        bindStateCallbacks(root_, bindings);
+        try {
+            rootNode_ = realizeElement(root_);
+            if (rootNode_ is null) {
+                throw new BuiException("Document", "the root element is not rendered");
+            }
+            // A root has no parent packer, so its CSS margin becomes an outer
+            // frame's insets (the user-agent `body { margin: 8px; }` included).
+            const Style rootStyle = root_.computed;
+            if (hasMargin(rootStyle)) {
+                auto outer = new Node("frame");
+                setPads(rootNode_, px(rootStyle.margin[3]), px(rootStyle.margin[0]),
+                         px(rootStyle.margin[1]), px(rootStyle.margin[2]));
+                rootNode_.pack("side", 0).pack("fill", 3).pack("expand", 1);
+                outer.add(rootNode_);
+                rootNode_ = outer;
+            }
         }
-        // A root has no parent packer, so its CSS margin becomes an outer
-        // frame's insets (the user-agent `body { margin: 8px; }` included).
-        const Style rootStyle = root_.computed;
-        if (hasMargin(rootStyle)) {
-            auto outer = new Node("frame");
-            setPads(rootNode_, px(rootStyle.margin[3]), px(rootStyle.margin[0]),
-                     px(rootStyle.margin[1]), px(rootStyle.margin[2]));
-            rootNode_.pack("side", 0).pack("fill", 3).pack("expand", 1);
-            outer.add(rootNode_);
-            rootNode_ = outer;
+        catch (Throwable error) {
+            foreach (ref binding; bindings) {
+                if (binding.element.onStateChange == stateHook_) {
+                    binding.element.onStateChange = binding.previous;
+                }
+            }
+            throw error;
         }
     }
 
@@ -167,11 +185,13 @@ final class Document {
     }
 
     /// A document owns the state hook of every element it realises. Rebind
-    /// them when a new document takes over an element tree.
-    private void bindStateCallbacks(Element element) {
+    /// them when a new document takes over an element tree, recording the
+    /// replaced hook so a failed mount can hand ownership back.
+    private void bindStateCallbacks(Element element, ref HookBinding[] bindings) {
+        bindings ~= HookBinding(element, element.onStateChange);
         element.onStateChange = stateHook_;
         foreach (child; element.children()) {
-            bindStateCallbacks(child);
+            bindStateCallbacks(child, bindings);
         }
     }
 

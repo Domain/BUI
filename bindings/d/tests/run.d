@@ -8,6 +8,7 @@ module run;
 import bui;
 import bui.internal.util : cslice;
 import core.memory : GC;
+import core.thread : Thread;
 import std.file : read;
 import std.path : buildPath, dirName;
 import std.stdio : writeln;
@@ -562,6 +563,29 @@ private void testReviewFixes() {
     check(first.num("value") == 0 && second.num("value") == 1, "radio group exclusive");
 }
 
+/// Free R in R -> C -> G while C holds a handler that captures C. The kit
+/// keeps G alive for as long as C does, so returning G shows whether C is
+/// collectable once the caller drops it. A thread gives the probe a stack the
+/// main thread's collector no longer scans, so the check is deterministic.
+private Node handlerRetentionProbe() {
+    Node survivor;
+    auto thread = new Thread({
+        auto root = new Node("frame");
+        auto child = new Node("frame");
+        auto grandchild = new Node("label");
+        root.add(child);
+        child.add(grandchild);
+        child.on(BK_EV_CLICK, (NodeEvent) {
+            child.set("text", "tick");
+        });
+        root.free();
+        survivor = grandchild;
+    });
+    thread.start();
+    thread.join();
+    return survivor;
+}
+
 private void testReviewRegressions() {
     // `onKey` binds the key event only; the release must not repeat it.
     int keys;
@@ -631,6 +655,15 @@ private void testReviewRegressions() {
     check(before == 2 && after == 2,
           "an owned child keeps its handlers after the parent is freed");
     handlerChild.free();
+
+    // A surviving owned root keeps its own handler store; sharing it with the
+    // whole subtree would let a kit-retained leaf pin the root through a
+    // captured handler, so the root could never be collected.
+    auto surviving = handlerRetentionProbe();
+    GC.collect();
+    check(surviving.parent() is null,
+          "a surviving owned root does not pin its subtree");
+    surviving.free();
 
     // Moving a handled subtree to another parent keeps its handlers.
     int moved;
@@ -741,6 +774,24 @@ private void testReviewRegressions() {
     secondDocument.restyle();
     secondDocument.dispose();
 
+    // A remount that fails (display: none) hands the element hooks back to
+    // the document that still owns the realised tree.
+    auto hookPage = body_(div("x").id("hook"));
+    auto hookOwner = new Document(hookPage);
+    auto hookElement = hookOwner.find("#hook");
+    check(hookElement.node !is null, "ownership test element is realised");
+    bool rejected;
+    try {
+        (new Document(hookPage, "body { display: none; }")).dispose();
+    }
+    catch (BuiException) {
+        rejected = true;
+    }
+    check(rejected, "a display:none root is rejected");
+    hookOwner.dispose();
+    check(hookElement.node is null,
+          "a failed remount restores the previous document's hooks");
+
     // Freeing a root closes the popups it owns before the C node disappears.
     auto popupRoot = new Node("frame");
     auto popupContext = new Context(popupRoot);
@@ -847,6 +898,26 @@ private void testReviewRegressions() {
         kid.free();
     }
 
+    // Removing a tree's roots clears ownership for the whole subtree, so a
+    // later promotion cannot follow a pointer to the freed tree.
+    auto staleTree = new Node("tree");
+    auto staleParent = new TreeItem("parent");
+    auto staleChild = new TreeItem("child");
+    auto staleLeaf = new TreeItem("leaf");
+    staleParent.add(staleChild);
+    staleChild.add(staleLeaf);
+    setRoots(staleTree, [staleParent]);
+    setRoots(staleTree, []);
+    staleParent.free();
+    staleTree.free();
+    auto freshTree = new Node("tree");
+    setRoots(freshTree, [staleLeaf]);
+    check(rowCount(freshTree) == 1, "promotion after a freed tree still works");
+    setRoots(freshTree, []);
+    freshTree.free();
+    staleLeaf.free();
+    staleChild.free();
+
     // Promoting a row out of an idle tree redraws the tree that lost it.
     auto sourceShell = new Node("frame");
     auto invalidated = new Node("tree");
@@ -924,6 +995,53 @@ private void testReviewRegressions() {
     renameTarget.free();
     renameAfter.free();
     renameHost.free();
+
+    // A rename keeps its retained target when promoting a preceding nested
+    // row shrinks the source below the index the edit started at.
+    auto shiftShell = new Node("frame");
+    auto shiftTree = new Node("tree");
+    shiftTree.pack("fill", 1);
+    auto shiftParent = new TreeItem("parent");
+    auto shiftMiddle = new TreeItem("middle");
+    auto shiftTarget = new TreeItem("target");
+    shiftParent.add(shiftMiddle);
+    shiftParent.add(shiftTarget);
+    setRoots(shiftTree, [shiftParent]);
+    shiftShell.add(shiftTree);
+    auto shiftContext = new Context(shiftShell);
+    auto shiftRaster = new Raster(240, 140);
+    shiftContext.render(shiftRaster, true);
+    check(rowCount(shiftTree) == 3, "nested tree rows before rename");
+    const shiftRect = rowRect(shiftTree, 2);
+    const shiftX = shiftRect[0] + shiftRect[2] / 2;
+    const shiftY = shiftRect[1] + shiftRect[3] / 2;
+    shiftContext.press(shiftX, shiftY, 0);
+    shiftContext.press(shiftX, shiftY, 0);
+    shiftContext.release(shiftX, shiftY, 0);
+    auto shiftDestShell = new Node("frame");
+    auto shiftDest = new Node("tree");
+    shiftDestShell.add(shiftDest);
+    auto shiftDestContext = new Context(shiftDestShell);
+    auto shiftDestRaster = new Raster(240, 140);
+    shiftDestContext.render(shiftDestRaster, true);
+    setRoots(shiftDest, [shiftMiddle]);
+    check(rowCount(shiftTree) == 2, "promotion shrinks the rename source");
+    shiftContext.key("shifted");
+    shiftContext.key("", "Return");
+    check(shiftTarget.label == "shifted",
+          "rename keeps the retained target past its old row index");
+    check(shiftMiddle.label == "middle", "rename does not retarget the new row");
+    setRoots(shiftDest, []);
+    setRoots(shiftTree, []);
+    shiftRaster.free();
+    shiftDestRaster.free();
+    shiftContext.free();
+    shiftDestContext.free();
+    shiftShell.free();
+    shiftDestShell.free();
+    shiftMiddle.free();
+    shiftTarget.free();
+    shiftParent.free();
 
     // Every wrapper surface rejects an empty node the same way.
     Node empty;

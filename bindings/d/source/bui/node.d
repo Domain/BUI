@@ -365,18 +365,21 @@ final class Node {
         }
     }
 
-    /// A D-owned child survives its parent's native free, so point every
-    /// surviving wrapper at the store that still holds its handlers. The
-    /// parent's store drop only removes entries for the nodes being freed.
+    /// A D-owned child survives its parent's native free, so point each
+    /// detached survivor root at the store that still holds its handlers and
+    /// stop there: a surviving root owns the wrappers below it, and sharing
+    /// with them would let a kit-retained descendant pin the root through a
+    /// handler closure. Kit-owned nodes stay part of the tree being freed, so
+    /// their surviving descendants are still found.
     private static void shareStoreWithSurvivors(BKNode* h, HandlerStore store) {
         for (int i = 0, n = BK_node_child_count(h); i < n; ++i) {
             auto child = BK_node_child(h, i);
-            if (BK_node_ref(child) !is null) {
-                if (auto wrapper = wrapperAt(child)) {
-                    wrapper.store_ = store;
-                }
+            if (BK_node_ref(child) is null) {
+                shareStoreWithSurvivors(child, store);
             }
-            shareStoreWithSurvivors(child, store);
+            else if (auto wrapper = wrapperAt(child)) {
+                wrapper.store_ = store;
+            }
         }
     }
 

@@ -223,7 +223,9 @@ tree and detaches its state hooks, after which the element tree can be mounted
 again. Disposing also clears every element's node wrappers first, including
 hidden elements the next document will not realise again. Calling `dispose()`
 again is a no-op, and an older document only clears wrappers it still owns, so
-disposing it cannot disturb a newer mount of the same element tree.
+disposing it cannot disturb a newer mount of the same element tree. A mount
+that fails (for example a root with `display: none`) restores the previous
+document's state hooks before it throws.
 
 The subset is deliberately smaller than the Rust engine's full taffy layout: no
 flex wrapping, no media queries, no pseudo-elements, no animations and no
@@ -272,7 +274,9 @@ borrowed one, so a handler closure cannot keep the owning panel alive.
 `free()` on a borrowed wrapper only drops its handlers and leaves the C node
 alone; a later `on()` starts a fresh handler list, so handlers registered
 before `free()` do not run again. An owned child that survives its parent's
-free keeps the handlers registered for its own subtree.
+free keeps the handlers registered for its own subtree; each detached survivor
+gets its own store, so a kit-retained descendant cannot pin the rest of the
+subtree through a captured handler.
 
 When a node is attached to a parent, the kit retains its wrapper through the
 reference hooks, exactly like the Python binding's `INCREF`/`DECREF`:
@@ -294,11 +298,13 @@ The same rule applies to:
 - **`TreeItem`**: adding a child or making an item a root retains it. The
   parent comes from the kit, and making an item a root detaches it from its old
   parent. A tree's selection and an open rename retain their item too, so
-  promoting a selected or renamed item into another tree is safe, and a rename
-  still edits the item that started it after `setRoots` shifts the source rows.
-  Promoting a row also invalidates the source tree so it redraws. `free()` does
-  nothing while a parent, a tree, a selection or an edit still holds the item;
-  replace the tree's roots (`setRoots(tree, [])`) before freeing them.
+  promoting a selected or renamed item into another tree is safe. A rename
+  still edits the item that started it after `setRoots` shifts or shrinks the
+  source rows, and `free()` does nothing while a parent, a tree, a selection or
+  an edit still holds the item. Promoting a row invalidates the source tree so
+  it redraws, and removing roots clears the whole removed subtree's cached
+  ownership before the tree can go away. Replace the tree's roots
+  (`setRoots(tree, [])`) before freeing them.
 - **Menu callbacks**: the kit copies the menu description and retains each
   callback through the reference hooks. The D `MenuItem` tree can be
   temporary.
@@ -456,11 +462,12 @@ default). LDC defaults to the static CRT, so `dub.json` passes
 - `examples/rsx_page.d` — an HTML/CSS page from `rsx!` in a native window.
 - `tests/run.d` — version, nodes and properties, geometry, render/input,
   clipboard, images, text areas, canvases, trees (including selection and
-  rename retention, batched root promotion and source-tree invalidation),
-  borrowed wrappers and handler invalidation, menus, custom nodes, host errors,
+  rename retention across shifted rows, batched root promotion, source-tree
+  invalidation and subtree ownership cleanup), borrowed wrappers and handler
+  invalidation, surviving owned children, menus, custom nodes, host errors,
   themes, icons, the CSS cascade, the HTML realiser (including repeat
-  `dispose()`), RSX (including delimited `q` strings) and the stable C API
-  version.
+  `dispose()` and a failed remount), RSX (including delimited `q` strings) and
+  the stable C API version.
 
 Run the suite with `dub run --config=test`. It is a normal executable, so it
 also works from CI steps that expect a process exit code.
