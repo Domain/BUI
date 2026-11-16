@@ -36,6 +36,7 @@ final class Document {
         Style base_;
         float viewportW_ = 800.0f;
         float viewportH_ = 600.0f;
+        void delegate() stateHook_;
     }
 
     /// Build `root` with the user-agent sheet plus `css`.
@@ -63,6 +64,10 @@ final class Document {
             base_.color = Color(0.9f, 0.9f, 0.9f, 1.0f);
         }
 
+        stateHook_ = () {
+            restyle();
+        };
+        bindStateCallbacks(root_);
         computeStyles(root_, base_);
         rootNode_ = realizeElement(root_);
         if (rootNode_ is null) {
@@ -84,6 +89,37 @@ final class Document {
     /// The kit root, ready for `new Context(root)`.
     Node node() {
         return rootNode_;
+    }
+
+    /// Release the kit tree and detach this document's state hooks. The
+    /// element tree stays usable: build a new `Document` to mount it again.
+    /// Disposing an already disposed document does nothing, and a document
+    /// only clears the wrappers it still owns, so it cannot disturb a newer
+    /// mount of the same element tree.
+    void dispose() {
+        if (rootNode_ is null) {
+            return;
+        }
+        const bool owner = root_.onStateChange == stateHook_;
+        unbindStateCallbacks(root_);
+        if (owner) {
+            clearNodeFields(root_);
+        }
+        rootNode_.free();
+        rootNode_ = null;
+    }
+
+    /// Drop every wrapper reference before the kit tree goes away. A hidden
+    /// element is not realised again on the next mount, so it must not keep
+    /// pointing at nodes the old document freed.
+    private static void clearNodeFields(Element element) {
+        element.kitNode_ = null;
+        element.outerNode_ = null;
+        element.flowNode_ = null;
+        element.backgroundNode_ = null;
+        foreach (child; element.children()) {
+            clearNodeFields(child);
+        }
     }
 
     /// The element tree.
@@ -130,14 +166,28 @@ final class Document {
         return root_.query(selector);
     }
 
+    /// A document owns the state hook of every element it realises. Rebind
+    /// them when a new document takes over an element tree.
+    private void bindStateCallbacks(Element element) {
+        element.onStateChange = stateHook_;
+        foreach (child; element.children()) {
+            bindStateCallbacks(child);
+        }
+    }
+
+    /// Clear only this document's hooks; a newer document may own them now.
+    private void unbindStateCallbacks(Element element) {
+        if (element.onStateChange == stateHook_) {
+            element.onStateChange = null;
+        }
+        foreach (child; element.children()) {
+            unbindStateCallbacks(child);
+        }
+    }
+
     private void computeStyles(Element element, Style parent) {
         element.computed = sheet_.compute(element, parent, element.inlineStyle,
                                            11.0f, viewportW_, viewportH_);
-        if (element.onStateChange is null) {
-            element.onStateChange = () {
-                restyle();
-            };
-        }
         foreach (child; element.children()) {
             computeStyles(child, element.computed);
         }
@@ -823,14 +873,7 @@ private Node realizeLeafWidget(Element element) {
 }
 
 private Node finishWidget(Element element, Node widget) {
-    const Style style = element.computed;
-    auto box = hasDecoration(style)
-        ? makeBox(element)
-        : Box(widget, widget, null);
-    if (box.flow !is widget) {
-        box.flow.add(widget);
-        widget.pack("side", 0).pack("fill", 3);
-    }
+    auto box = decorateLeaf(element, widget);
     finish(element, widget, box.outer, box.background);
     return box.outer;
 }

@@ -404,6 +404,80 @@ private size_t findClosingTag(string source, size_t from, string tag) {
     throw new Exception("rsx: missing </" ~ tag ~ ">");
 }
 
+/// Whether the quote at `i` opens a D wysiwyg string (`r"..."`, `x"..."`),
+/// where a backslash does not escape the closing quote.
+private bool rawString(string source, size_t i) {
+    if (source[i] != '"' || i == 0) {
+        return false;
+    }
+    const char prefix = source[i - 1];
+    return prefix == 'r' || prefix == 'x';
+}
+
+/// Whether the quote at `i` opens a D delimited/token string (`q"..."`).
+private bool qString(string source, size_t i) {
+    return source[i] == '"' && i > 0 && source[i - 1] == 'q';
+}
+
+/// Skip a D delimited string. `q"(...)"`, `q"[...]"`, `q"{...}"` and
+/// `q"<...>"` scan to the matching close delimiter followed by a quote, so
+/// internal double quotes are content and delimiters nest. A plain `q"..."`
+/// ends at the next quote, like a raw string.
+private void skipQString(string source, ref size_t i) {
+    assert(source[i] == '"');
+    ++i;
+    char open = '\0';
+    char close = '\0';
+    if (i < source.length) {
+        switch (source[i]) {
+        case '(':
+            open = '(';
+            close = ')';
+            break;
+        case '[':
+            open = '[';
+            close = ']';
+            break;
+        case '{':
+            open = '{';
+            close = '}';
+            break;
+        case '<':
+            open = '<';
+            close = '>';
+            break;
+        default:
+            break;
+        }
+    }
+    if (close == '\0') {
+        while (i < source.length && source[i] != '"') {
+            ++i;
+        }
+        if (i >= source.length) {
+            throw new Exception("rsx: unterminated string in {...}");
+        }
+        ++i;
+        return;
+    }
+    ++i;
+    int depth = 1;
+    while (i < source.length) {
+        if (source[i] == open) {
+            ++depth;
+        }
+        else if (source[i] == close && --depth == 0) {
+            if (i + 1 >= source.length || source[i + 1] != '"') {
+                throw new Exception("rsx: unterminated delimited string in {...}");
+            }
+            i += 2;
+            return;
+        }
+        ++i;
+    }
+    throw new Exception("rsx: unterminated delimited string in {...}");
+}
+
 /// Read a balanced `{...}` and return the D expression inside.
 private string readBraceExpression(string source, ref size_t i) {
     assert(source[i] == '{');
@@ -412,11 +486,15 @@ private string readBraceExpression(string source, ref size_t i) {
     int depth = 1;
     while (i < source.length) {
         const char c = source[i];
-        if (c == '"' || c == '\'') {
+        if (c == '"' && qString(source, i)) {
+            skipQString(source, i);
+        }
+        else if (c == '"' || c == '\'') {
             const char quote = c;
+            const bool raw = rawString(source, i);
             ++i;
             while (i < source.length && source[i] != quote) {
-                if (source[i] == '\\') {
+                if (!raw && source[i] == '\\') {
                     ++i;
                 }
                 ++i;

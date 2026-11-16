@@ -95,6 +95,18 @@ final class Window {
         focusHandler = handler;
     }
 
+    /// The exception a window callback caught, if any, without clearing it.
+    Throwable pendingError() {
+        return context is null ? null : context.pendingError();
+    }
+
+    /// Re-throw a window callback exception, if one was caught.
+    void check() {
+        if (context !is null) {
+            context.check();
+        }
+    }
+
     /* -- window ------------------------------------------------------------ */
 
     void show() {
@@ -193,11 +205,12 @@ final class Window {
         if (self is null || self.timerHandler is null) {
             return;
         }
+        auto context = self.context;
         try {
             self.timerHandler(id);
         }
-        catch (Throwable) {
-            // The kit calls timers from its message loop; nothing can unwind.
+        catch (Throwable e) {
+            storeError(context, e);
         }
     }
 
@@ -206,10 +219,12 @@ final class Window {
         if (self is null || self.closeHandler is null) {
             return 1;
         }
+        auto context = self.context;
         try {
             return self.closeHandler() ? 1 : 0;
         }
-        catch (Throwable) {
+        catch (Throwable e) {
+            storeError(context, e);
             return 1;
         }
     }
@@ -219,11 +234,12 @@ final class Window {
         if (self is null || self.frameHandler is null) {
             return;
         }
+        auto context = self.context;
         try {
             self.frameHandler();
         }
-        catch (Throwable) {
-            // See timerCallback.
+        catch (Throwable e) {
+            storeError(context, e);
         }
     }
 
@@ -232,11 +248,20 @@ final class Window {
         if (self is null || self.focusHandler is null) {
             return;
         }
+        auto context = self.context;
         try {
             self.focusHandler(active != 0);
         }
-        catch (Throwable) {
-            // See timerCallback.
+        catch (Throwable e) {
+            storeError(context, e);
+        }
+    }
+
+    /// A handler may free the window; keep the Context it started with so the
+    /// exception is still reachable through `pendingError()`.
+    private static void storeError(Context context, Throwable e) {
+        if (context !is null) {
+            context.store(e);
         }
     }
 }

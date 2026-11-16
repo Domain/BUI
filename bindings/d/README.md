@@ -207,14 +207,23 @@ Markup inside `rsx!` always uses the HTML spelling, so `<select>` is fine there.
 `rsx!` parses in CTFE and lowers to ordinary `Element` calls: attributes,
 `{expression}` text and values, `onclick`/`onchange`/... delegates, boolean
 attributes, entities, comments, void tags, raw `<style>` text and custom
-elements. Dynamic attributes such as `class={names}` and `hidden={flag}`
+elements. Raw (`r"..."`, `x"..."`) and delimited (`q"[...]"`, `q"(...)"`,
+`q"{...}"`, `q"<...>"`) strings inside `{...}` are scanned with their own
+rules, so quotes and braces in them do not close the expression and bracket
+delimiters nest. Dynamic
+attributes such as `class={names}` and `hidden={flag}`
 stringify or toggle through `flagAttr`.
 
 `Document.restyle` re-runs the cascade and applies visual properties after
 `Element.setState("hover", true)` or in the kit `ENTER`/`LEAVE`/`PRESS`/
 `RELEASE` handlers; layout structure is fixed when the document is built. A
 changed text leaf updates in place with `Element.setText`; a different document
-structure needs a new `Document`.
+structure needs a new `Document`. `Document.dispose()` releases the realised kit
+tree and detaches its state hooks, after which the element tree can be mounted
+again. Disposing also clears every element's node wrappers first, including
+hidden elements the next document will not realise again. Calling `dispose()`
+again is a no-op, and an older document only clears wrappers it still owns, so
+disposing it cannot disturb a newer mount of the same element tree.
 
 The subset is deliberately smaller than the Rust engine's full taffy layout: no
 flex wrapping, no media queries, no pseudo-elements, no animations and no
@@ -242,16 +251,28 @@ Callbacks must not throw through C frames. The wrappers catch exceptions where
 the kit calls in:
 `Context.pendingError()` returns the first one and `Context.check()` rethrows
 it. `Context`'s input and render methods call `check()` for you, so a throwing
-host callback surfaces at the next input or render call. `Custom` and `Video`
-callbacks use the same pattern.
+host callback surfaces at the next input or render call. `Window` callbacks
+(timers, close, frame and focus) store their exceptions the same way;
+`Window.pendingError()` and `Window.check()` expose them, even when the
+handler frees the window. `Custom` and `Video` callbacks use the same pattern.
 
 ## Ownership
 
 `new Node(type)` owns its C node. `free()` releases it and is idempotent; the
 destructor calls it too. Nodes the kit returns (`parent`, `child`, `hover`,
-`focus`, `popup`) are **borrowed**: they come back as wrappers that never free
-the C node. If the node was created in D its existing wrapper is returned, so
-identity is preserved.
+`focus`, `popup`, `pickerPart`) are **borrowed**: they come back as wrappers
+that never free the C node. If the node was created in D its existing wrapper
+is returned, so identity is preserved.
+
+A C-owned node (a panel body, a popup, a picker part) gets one cached borrowed
+wrapper. The kit retains that wrapper for the node's lifetime, so handlers
+added through `parent().child(i)` keep receiving the node's events. The
+handlers themselves live on the topmost D-owned wrapper, not on the rooted
+borrowed one, so a handler closure cannot keep the owning panel alive.
+`free()` on a borrowed wrapper only drops its handlers and leaves the C node
+alone; a later `on()` starts a fresh handler list, so handlers registered
+before `free()` do not run again. An owned child that survives its parent's
+free keeps the handlers registered for its own subtree.
 
 When a node is attached to a parent, the kit retains its wrapper through the
 reference hooks, exactly like the Python binding's `INCREF`/`DECREF`:
@@ -270,9 +291,14 @@ The same rule applies to:
   is kept alive by the canvas, so the string can be temporary.
 - **`Raster`** returned by `Window.raster()`: borrowed, so never free it.
   `new Raster(w, h)` owns its raster.
-- **`TreeItem`**: adding a child or making an item a root retains it. `free()`
-  does nothing while a parent or a tree still holds the item; replace the
-  tree's roots (`setRoots(tree, [])`) before freeing them.
+- **`TreeItem`**: adding a child or making an item a root retains it. The
+  parent comes from the kit, and making an item a root detaches it from its old
+  parent. A tree's selection and an open rename retain their item too, so
+  promoting a selected or renamed item into another tree is safe, and a rename
+  still edits the item that started it after `setRoots` shifts the source rows.
+  Promoting a row also invalidates the source tree so it redraws. `free()` does
+  nothing while a parent, a tree, a selection or an edit still holds the item;
+  replace the tree's roots (`setRoots(tree, [])`) before freeing them.
 - **Menu callbacks**: the kit copies the menu description and retains each
   callback through the reference hooks. The D `MenuItem` tree can be
   temporary.
@@ -312,6 +338,9 @@ player.play();
 auto videoNode = new Node("video");
 videoNode.setVideo(player);
 ```
+
+`Video.texture(tex, maxW, maxH)` copies the current frame into `tex` and returns
+its texture ID (0 before the first frame).
 
 `Image` decodes PNG, JPEG, WebP, GIF, BMP, TGA, QOI, HDR, PNM and SVG through
 the kit's shared decoders. `Image.fromRgba`, `fromArgb`, `decode`, `probe`,
@@ -364,9 +393,10 @@ Do this **before** creating a `Window`: the native window installs its own host
 that provides these services and forwards events to the handlers above.
 `Window` adds `show`, `close`, `setTitle`, `setSize`, `size`, `raster`,
 `setGpu`, `gpu`, `frames`, `renderNow`, `timer`, `requestFrame`,
-`cancelTimer`, `nativeHandle`, `wm`/`wmGet`, `onTimer`, `onClose`, `onFrame`
-and `onFocus`. `run`, `pump`, `quit`, `wake`, `wakeInit`, `setStopCheck`,
-`setKeepAlive` and `windowSupported` are module-level.
+`cancelTimer`, `nativeHandle`, `wm`/`wmGet`, `onTimer`, `onClose`, `onFrame`,
+`onFocus`, `pendingError` and `check`. `run`, `pump`, `quit`, `wake`,
+`wakeInit`, `setStopCheck`, `setKeepAlive` and `windowSupported` are
+module-level.
 
 `bui.theme` has `setScale`, `scale`, `setTextShadow`, `textShadow`, `unit`,
 `setFont`, `setFontSize`, `fontSizePoints`, `setTheme`, `themeName`,
@@ -407,9 +437,13 @@ the C API are renamed: `ref` becomes `ref_`, `align` becomes `align_`.
 
 `scripts/build_bui.ps1` and `scripts/build_bui.sh` run CMake with the bindings
 off and build `bui_kit` and `bui_api` in Release, then copy the four static
-libraries into `.bui/lib`. DUB calls the right script from `preBuildCommands`,
-so a normal `dub build`, `dub run` or `dub run --config=test` is enough.
-Override the checkout with `BUI_SOURCE_DIR`.
+libraries into `.bui/lib`. DUB calls the right script from
+`preGenerateCommands`, so a normal `dub build`, `dub run` or
+`dub run --config=test` checks the C sources even when DUB would consider the
+package up to date. The four libraries are listed in `extraDependencyFiles`
+(per platform), and they are copied only when their content changes, so an
+unchanged native build does not force a relink. Override the checkout with
+`BUI_SOURCE_DIR`.
 
 On Windows the C libraries use the dynamic UCRT (`/MD`, CMake's Release
 default). LDC defaults to the static CRT, so `dub.json` passes
@@ -421,9 +455,12 @@ default). LDC defaults to the static CRT, so `dub.json` passes
 - `examples/headless.d` — no window: render, click, read pixels.
 - `examples/rsx_page.d` — an HTML/CSS page from `rsx!` in a native window.
 - `tests/run.d` — version, nodes and properties, geometry, render/input,
-  clipboard, images, text areas, canvases, trees, menus, custom nodes, host
-  errors, themes, icons, the CSS cascade, the HTML realiser, RSX and the stable
-  C API version.
+  clipboard, images, text areas, canvases, trees (including selection and
+  rename retention, batched root promotion and source-tree invalidation),
+  borrowed wrappers and handler invalidation, menus, custom nodes, host errors,
+  themes, icons, the CSS cascade, the HTML realiser (including repeat
+  `dispose()`), RSX (including delimited `q` strings) and the stable C API
+  version.
 
 Run the suite with `dub run --config=test`. It is a normal executable, so it
 also works from CI steps that expect a process exit code.

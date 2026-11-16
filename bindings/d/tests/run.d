@@ -35,6 +35,7 @@ void main() {
     testHtml();
     testRsx();
     testReviewFixes();
+    testReviewRegressions();
     testCapi();
     writeln("bindings/d: all tests passed");
 }
@@ -561,6 +562,408 @@ private void testReviewFixes() {
     check(first.num("value") == 0 && second.num("value") == 1, "radio group exclusive");
 }
 
+private void testReviewRegressions() {
+    // `onKey` binds the key event only; the release must not repeat it.
+    int keys;
+    auto keyPage = body_(div("key").id("key").onKey((string key) {
+        ++keys;
+    }));
+    auto keyDocument = new Document(keyPage);
+    auto keyed = keyDocument.find("#key").node;
+    keyed.dispatch(BK_EV_KEY, cast(void*) "a".ptr, 0, 0);
+    keyed.dispatch(BK_EV_KEYRELEASE, cast(void*) "a".ptr, 0, 0);
+    check(keys == 1, "onKey fires once per key event");
+
+    // A rowspan reserves its column in the following row.
+    auto tablePage = body_(table(
+        tr(td("a").attr("rowspan", "2").id("span-a"), td("b")),
+        tr(td("c").id("span-c"))
+    ));
+    auto tableDocument = new Document(tablePage);
+    check(tableDocument.find("#span-c").outerNode().geom("column") == 1,
+          "rowspan reserves a column");
+
+    // A column flex container blockifies its inline children.
+    auto flexPage = body_(div(span("a"), span("b")).id("flex")
+        .style("display: flex; flex-direction: column"));
+    auto flexDocument = new Document(flexPage);
+    check(flexDocument.find("#flex").outerNode().childCount() == 2,
+          "column flex keeps its items separate");
+
+    // A hidden row group hides its rows.
+    auto hiddenPage = body_(table(tbody(tr(td("gone")))
+        .attr("hidden", "").id("hidden-body")));
+    auto hiddenDocument = new Document(hiddenPage);
+    check(hiddenDocument.find("#hidden-body").node is null,
+          "hidden tbody is not realised");
+    check(hiddenDocument.find("td").node is null,
+          "hidden tbody row is not realised");
+
+    // Tree operations reject a node that is not a tree.
+    auto label = new Node("label");
+    check(throwsBui({ setRoots(label, []); }), "tree type guard");
+    label.free();
+
+    // A handler registered before the node is attached moves to the owning
+    // wrapper, so handlers added later do not hide it.
+    int before, after;
+    string order;
+    auto handlerRoot = new Node("frame");
+    auto handlerChild = new Node("label");
+    handlerChild.on((NodeEvent e) {
+        if (e.kind == BK_EV_CLICK) {
+            ++before;
+            order ~= "before";
+        }
+    });
+    handlerRoot.add(handlerChild);
+    handlerChild.on((NodeEvent e) {
+        if (e.kind == BK_EV_CLICK) {
+            ++after;
+            order ~= "after";
+        }
+    });
+    handlerChild.dispatch(BK_EV_CLICK, null, 0, 0);
+    check(before == 1 && after == 1 && order == "beforeafter",
+          "handlers before and after attach both run in order");
+    handlerRoot.free();
+    handlerChild.dispatch(BK_EV_CLICK, null, 0, 0);
+    check(before == 2 && after == 2,
+          "an owned child keeps its handlers after the parent is freed");
+    handlerChild.free();
+
+    // Moving a handled subtree to another parent keeps its handlers.
+    int moved;
+    auto firstRoot = new Node("frame");
+    auto secondRoot = new Node("frame");
+    auto movedNode = new Node("label");
+    movedNode.on((NodeEvent e) {
+        if (e.kind == BK_EV_CLICK) {
+            ++moved;
+        }
+    });
+    firstRoot.add(movedNode);
+    movedNode.on((NodeEvent e) {
+        if (e.kind == BK_EV_CLICK) {
+            ++moved;
+        }
+    });
+    secondRoot.add(movedNode);
+    movedNode.dispatch(BK_EV_CLICK, null, 0, 0);
+    check(moved == 2 && movedNode.parent() is secondRoot,
+          "handlers move with a reparented node");
+    firstRoot.free();
+    secondRoot.free();
+    movedNode.free();
+
+    // Moving an intermediate ancestor keeps handlers that live further up.
+    int guarded;
+    auto guardRoot = new Node("frame");
+    auto guardMiddle = new Node("frame");
+    auto guardLeaf = new Node("label");
+    guardRoot.add(guardMiddle);
+    guardLeaf.on((NodeEvent e) {
+        if (e.kind == BK_EV_CLICK) {
+            ++guarded;
+        }
+    });
+    guardMiddle.add(guardLeaf);
+    auto guardSecond = new Node("frame");
+    guardSecond.add(guardMiddle);
+    guardLeaf.dispatch(BK_EV_CLICK, null, 0, 0);
+    check(guarded == 1, "handlers survive moving an intermediate ancestor");
+    guardSecond.free();
+    guardMiddle.free();
+    guardLeaf.free();
+    guardRoot.free();
+
+    // A C-owned child gets one cached borrowed wrapper, and handlers added
+    // through it see the kit's events.
+    auto panel = new Node("panel");
+    auto body = panel.child(0);
+    check(body !is null, "panel body child");
+    check(panel.child(0) is body, "borrowed wrapper is cached");
+    body.set("events", true);
+    int enters;
+    body.on(BK_EV_ENTER, (NodeEvent) {
+        ++enters;
+    });
+    auto content = new Node("label");
+    content.set("text", "body");
+    body.add(content);
+    auto panelContext = new Context(panel);
+    auto panelRaster = new Raster(200, 160);
+    panelContext.render(panelRaster, true);
+    const bodyRect = body.rect();
+    check(bodyRect[2] > 0 && bodyRect[3] > 0, "panel body laid out");
+    panelContext.motion(bodyRect[0] + bodyRect[2] / 2,
+                        bodyRect[1] + bodyRect[3] / 2, 0);
+    check(enters == 1, "borrowed wrapper handler runs");
+    int refreshed;
+    body.free();
+    body.on(BK_EV_ENTER, (NodeEvent) {
+        ++refreshed;
+    });
+    body.dispatch(BK_EV_ENTER, null, 0, 0);
+    check(enters == 1 && refreshed == 1,
+          "a freed borrowed wrapper does not revive its old handlers");
+    // The handler lives on the owning wrapper's store, so collecting the
+    // borrowed wrapper does not drop it.
+    panelContext.motion(0, 0, 0);
+    body = null;
+    GC.collect();
+    panelContext.motion(bodyRect[0] + bodyRect[2] / 2,
+                        bodyRect[1] + bodyRect[3] / 2, 0);
+    check(enters == 1 && refreshed == 2, "handlers outlive the borrowed wrapper");
+    panelRaster.free();
+    panelContext.free();
+    panel.free();
+    content.free();
+
+    // The texture accessor returns the texture ID, not a success flag.
+    static assert(is(typeof(Video.init.texture(0)) == int),
+                  "Video.texture returns a texture id");
+
+    // A document that takes over an existing element tree rebinds the state
+    // callback instead of keeping the old document's hook.
+    auto rebindPage = body_(div("x").id("box"));
+    auto firstDocument = new Document(rebindPage, "#box { width: 50vw; }");
+    auto secondDocument = new Document(rebindPage, "#box { width: 50vw; }");
+    secondDocument.setViewport(200, 100);
+    check(secondDocument.find("#box").outerNode().geom("reqwidth") == 100,
+          "second document viewport applied");
+    secondDocument.find("#box").node.dispatch(BK_EV_ENTER, null, 0, 0);
+    check(secondDocument.find("#box").outerNode().geom("reqwidth") == 100,
+          "state callback follows the current document");
+    firstDocument.dispose();
+    check(secondDocument.find("#box").node !is null,
+          "disposing an older document leaves the newer mount");
+    secondDocument.restyle();
+    secondDocument.dispose();
+
+    // Freeing a root closes the popups it owns before the C node disappears.
+    auto popupRoot = new Node("frame");
+    auto popupContext = new Context(popupRoot);
+    popupContext.openMenu(popupRoot, [new MenuItem("One", {})]);
+    check(popupContext.popupCount() == 1, "root popup opened");
+    popupRoot.free();
+    check(popupContext.popupCount() == 0, "freeing the root closes its popups");
+    popupContext.free();
+
+    // A disposed document releases its kit root and the element tree can be
+    // mounted again.
+    auto disposablePage = body_(div("x").id("box"));
+    auto disposable = new Document(disposablePage);
+    auto disposableRoot = disposable.node();
+    check(disposableRoot !is null, "document root");
+    disposable.dispose();
+    check(disposable.node() is null, "document dispose drops the kit root");
+    check(disposableRoot.handle is null, "disposed root node is freed");
+    auto remounted = new Document(disposablePage, "#box { color: #00ff00; }");
+    check(remounted.find("#box").node !is null, "element tree remounts after dispose");
+    disposable.dispose();
+    check(remounted.find("#box").node !is null,
+          "disposing the old document again leaves the remounted nodes");
+    remounted.restyle();
+    remounted.dispose();
+
+    // Disposing clears node wrappers for hidden elements too. The next
+    // document skips them, so they must not keep pointing at freed nodes.
+    auto hidingPage = body_(div("x").id("hidden-box"));
+    auto hidingDocument = new Document(hidingPage);
+    auto hiddenElement = hidingDocument.find("#hidden-box");
+    check(hiddenElement !is null, "element for the hide test");
+    hiddenElement.attr("hidden", "");
+    hidingDocument.dispose();
+    auto hidingAgain = new Document(hidingPage);
+    check(hidingAgain.find("#hidden-box").node is null, "hidden element stays hidden");
+    hidingAgain.restyle();
+    hidingAgain.dispose();
+
+    // `clear` detaches children so their wrappers can be released.
+    auto detachRoot = new TreeItem("detach");
+    auto detachChild = new TreeItem("child");
+    detachRoot.add(detachChild);
+    check(detachChild.parent() is detachRoot, "tree parent before clear");
+    detachRoot.clear();
+    check(detachChild.parent() is null, "tree clear detaches children");
+    detachChild.free();
+    check(detachChild.handle is null, "detached child frees");
+    detachRoot.free();
+    check(detachRoot.handle is null, "detached root frees");
+
+    // Making a child a root detaches it from its old parent in the kit.
+    auto oldParent = new TreeItem("parent");
+    auto promoted = new TreeItem("child");
+    oldParent.add(promoted);
+    auto tree = new Node("tree");
+    setRoots(tree, [promoted]);
+    check(promoted.parent() is null, "a tree root has no parent");
+    check(oldParent.childCount() == 0, "setRoots detaches from the old parent");
+    setRoots(tree, []);
+    tree.free();
+    promoted.free();
+    oldParent.free();
+
+    // Promoting a selected item detaches it from the source parent; the
+    // selection keeps the wrapper alive until it is cleared or the tree goes.
+    auto sourceTree = new Node("tree");
+    auto destTree = new Node("tree");
+    auto sourceParent = new TreeItem("source");
+    auto selectedChild = new TreeItem("selected");
+    sourceParent.add(selectedChild);
+    setRoots(sourceTree, [sourceParent]);
+    select(sourceTree, selectedChild);
+    setRoots(destTree, [selectedChild]);
+    check(selectedChild.parent() is null, "promoted selection is detached");
+    setRoots(destTree, []);
+    selectedChild.free();
+    check(selectedChild.handle !is null, "selection retains the promoted item");
+    check(selected(sourceTree) is selectedChild, "source tree keeps its selection");
+    select(sourceTree, null);
+    selectedChild.free();
+    check(selectedChild.handle is null, "clearing the selection releases the item");
+    setRoots(sourceTree, []);
+    sourceTree.free();
+    destTree.free();
+    sourceParent.free();
+
+    // Promoting many siblings detaches them in one compaction pass.
+    auto batchParent = new TreeItem("batch");
+    TreeItem[] batchKids;
+    foreach (i; 0 .. 64) {
+        auto kid = new TreeItem("kid");
+        batchParent.add(kid);
+        batchKids ~= kid;
+    }
+    auto batchTree = new Node("tree");
+    setRoots(batchTree, batchKids);
+    check(batchParent.childCount() == 0, "setRoots detaches a batch of siblings");
+    check(rowCount(batchTree) == 64, "batch roots are rows");
+    setRoots(batchTree, []);
+    batchTree.free();
+    batchParent.free();
+    foreach (kid; batchKids) {
+        kid.free();
+    }
+
+    // Promoting a row out of an idle tree redraws the tree that lost it.
+    auto sourceShell = new Node("frame");
+    auto invalidated = new Node("tree");
+    invalidated.pack("fill", 1);
+    auto invalidatedParent = new TreeItem("parent");
+    auto invalidatedChild = new TreeItem("child");
+    invalidatedParent.add(invalidatedChild);
+    setRoots(invalidated, [invalidatedParent]);
+    sourceShell.add(invalidated);
+    auto sourceContext = new Context(sourceShell);
+    auto sourceRaster = new Raster(240, 140);
+    sourceContext.render(sourceRaster, true);
+    check(!sourceContext.needsRender(), "source tree is idle after render");
+    auto destinationShell = new Node("frame");
+    auto destination = new Node("tree");
+    destinationShell.add(destination);
+    auto destinationContext = new Context(destinationShell);
+    auto destinationRaster = new Raster(240, 140);
+    destinationContext.render(destinationRaster, true);
+    setRoots(destination, [invalidatedChild]);
+    check(sourceContext.needsRender(), "promotion invalidates the source tree");
+    setRoots(destination, []);
+    setRoots(invalidated, []);
+    sourceRaster.free();
+    destinationRaster.free();
+    sourceContext.free();
+    destinationContext.free();
+    sourceShell.free();
+    destinationShell.free();
+    invalidatedParent.free();
+    invalidatedChild.free();
+
+    // A rename keeps the item that started the edit, even when a promotion
+    // shifts the source rows while the edit is open.
+    auto renameShell = new Node("frame");
+    auto renameTree = new Node("tree");
+    renameTree.pack("fill", 1);
+    auto renameBefore = new TreeItem("before");
+    auto renameTarget = new TreeItem("target");
+    auto renameAfter = new TreeItem("after");
+    setRoots(renameTree, [renameBefore, renameTarget, renameAfter]);
+    renameShell.add(renameTree);
+    auto renameContext = new Context(renameShell);
+    auto renameRaster = new Raster(240, 140);
+    renameContext.render(renameRaster, true);
+    const targetRect = rowRect(renameTree, 1);
+    const targetX = targetRect[0] + targetRect[2] / 2;
+    const targetY = targetRect[1] + targetRect[3] / 2;
+    renameContext.press(targetX, targetY, 0);
+    renameContext.press(targetX, targetY, 0);
+    renameContext.release(targetX, targetY, 0);
+    auto renameDestShell = new Node("frame");
+    auto renameDest = new Node("tree");
+    renameDestShell.add(renameDest);
+    auto renameDestContext = new Context(renameDestShell);
+    auto renameDestRaster = new Raster(240, 140);
+    renameDestContext.render(renameDestRaster, true);
+    auto renameHost = new TreeItem("host");
+    setRoots(renameDest, [renameHost]);
+    setRoots(renameDest, [renameHost, renameBefore]);
+    renameContext.key("renamed");
+    renameContext.key("", "Return");
+    check(renameTarget.label == "renamed", "rename follows the promoted item");
+    check(renameAfter.label == "after" && renameBefore.label == "before",
+          "rename does not retarget a shifted row");
+    setRoots(renameDest, []);
+    setRoots(renameTree, []);
+    renameRaster.free();
+    renameDestRaster.free();
+    renameContext.free();
+    renameDestContext.free();
+    renameShell.free();
+    renameDestShell.free();
+    renameBefore.free();
+    renameTarget.free();
+    renameAfter.free();
+    renameHost.free();
+
+    // Every wrapper surface rejects an empty node the same way.
+    Node empty;
+    check(throwsBui({ insertText(empty, 0, "x"); }), "textarea handle guard");
+    check(throwsBui({ addItem(empty, CanvasItem.rect(1, 0, 0, 1, 1)); }),
+          "canvas handle guard");
+    check(throwsBui({ requestFrame(empty); }), "custom frame guard");
+    check(throwsBui({ setCursor(empty, 0); }), "custom cursor guard");
+    check(throwsBui({ hasFocus(empty); }), "custom focus guard");
+
+    // Rectangles and ovals share their construction path.
+    auto rectItem = CanvasItem.rect(7, 1, 2, 3, 4,
+                                    [0.1f, 0.2f, 0.3f, 0.4f],
+                                    [0.5f, 0.6f, 0.7f, 0.8f]);
+    check(rectItem.id == 7 && rectItem.type == BK_ITEM_RECT, "canvas rect type");
+    check(rectItem.coords.length == 4 && rectItem.coords[0] == 1 &&
+          rectItem.coords[3] == 4, "canvas rect coords");
+    check(rectItem.fill[1] == 0.2f && rectItem.outline[3] == 0.8f,
+          "canvas rect colors");
+    auto ovalItem = CanvasItem.oval(8, 5, 6, 7, 8);
+    check(ovalItem.id == 8 && ovalItem.type == BK_ITEM_OVAL, "canvas oval type");
+    check(ovalItem.coords.length == 4 && ovalItem.coords[0] == 5 &&
+          ovalItem.coords[3] == 8, "canvas oval coords");
+    check(ovalItem.fill[3] == 0 && ovalItem.outline[3] == 0, "canvas oval defaults");
+
+    // The color parser shares the CSS token helpers.
+    Color parsed;
+    check(tryParseColor("  ReD ", parsed) && parsed.r == 1 && parsed.g == 0 &&
+          parsed.a == 1, "color name trim and case");
+    check(tryParseColor("#0f08", parsed) && parsed.r == 0 && parsed.g == 1 &&
+          parsed.b == 0 && parsed.a > 0.53 && parsed.a < 0.54,
+          "color short hex with alpha");
+    check(tryParseColor("rgb(100% 0% 50% / 50%)", parsed) &&
+          parsed.r == 1 && parsed.b > 0.49 && parsed.b < 0.51 &&
+          parsed.a > 0.49 && parsed.a < 0.51, "color rgb percentages");
+    check(tryParseColor(" hsl(120, 100%, 25%) ", parsed) && parsed.g > 0.49,
+          "color hsl whitespace");
+    check(!tryParseColor("currentcolor", parsed), "color keyword rejected");
+}
+
 private void testRsx() {
     int count = 3;
     string label = "dynamic";
@@ -628,6 +1031,30 @@ private void testRsx() {
     check(dynamic.attrValue("class") == "one two", "rsx dynamic class");
     check(dynamic.children()[0].hasAttr("hidden"), "rsx dynamic flag on");
     check(!dynamic.children()[1].hasAttr("disabled"), "rsx dynamic flag off");
+
+    auto raw = mixin(rsx!`
+        <div id="raw">{r"C:\tmp\"}</div>
+    `);
+    auto rawDocument = new Document(raw);
+    check(rawDocument.find("#raw").node.str("text") == r"C:\tmp\",
+          "rsx raw string expression");
+
+    // Delimited q strings can contain double quotes; the scanner must stop at
+    // the matching close delimiter, not the first quote.
+    auto delimited = mixin(rsx!`
+        <div id="delimited">{q"[a \" }x]"}</div>
+    `);
+    auto delimitedDocument = new Document(delimited);
+    check(delimitedDocument.find("#delimited").node.str("text") == q"[a \" }x]",
+          "rsx delimited q string expression");
+
+    // Nested delimiters are content until the matching outer close.
+    auto nested = mixin(rsx!`
+        <div id="nested">{q"(a (b) } c)"}</div>
+    `);
+    auto nestedDocument = new Document(nested);
+    check(nestedDocument.find("#nested").node.str("text") == q"(a (b) } c)",
+          "rsx nested delimited q string expression");
 }
 
 private void testCapi() {

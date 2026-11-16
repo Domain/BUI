@@ -5,7 +5,7 @@ description: Build BUI interfaces from D with an Element tree, tag constructors,
 section: D
 order: 20
 languages: ["d"]
-sources: ["bindings/d/source/bui/html/element.d", "bindings/d/source/bui/html/tags.d", "bindings/d/source/bui/html/realize.d", "bindings/d/source/bui/css/style.d", "bindings/d/source/bui/rsx.d", "bindings/d/examples/rsx_page.d", "bindings/d/tests/run.d", "docs/d.md"]
+sources: ["bindings/d/source/bui/html/element.d", "bindings/d/source/bui/html/tags.d", "bindings/d/source/bui/html/realize.d", "bindings/d/source/bui/css/style.d", "bindings/d/source/bui/rsx.d", "bindings/d/examples/rsx_page.d", "bindings/d/tests/run.d", "bindings/d/README.md"]
 ---
 
 **You can write a BUI interface in D as HTML and CSS.** `rsx!` parses markup at compile time, `Document` cascades the styles and realises the tree as kit nodes, and the result opens in a native window like any other BUI root. There is no webview and no browser.
@@ -46,7 +46,7 @@ void main() {
 }
 ```
 
-`rsx!` runs in CTFE and lowers every element to ordinary `Element` calls, so the markup has the same types and event handlers as the hand-written API. `{count}` interpolates a D expression; `onclick` takes a D delegate. `Document` runs the user-agent stylesheet, the page's `<style>` elements and an optional CSS string passed to its constructor.
+`rsx!` runs in CTFE and lowers every element to ordinary `Element` calls, so the markup has the same types and event handlers as the hand-written API. `{count}` interpolates a D expression; `onclick` takes a D delegate. Raw (`r"..."`, `x"..."`) and delimited (`q"[...]"`, `q"(...)"`, `q"{...}"`, `q"<...>"`) strings inside `{...}` are scanned with their own rules, so quotes and braces in them do not close the expression and bracket delimiters nest. `Document` runs the user-agent stylesheet, the page's `<style>` elements and an optional CSS string passed to its constructor.
 
 ## The same tree without rsx
 
