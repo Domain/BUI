@@ -563,18 +563,33 @@ private void testReviewFixes() {
     check(first.num("value") == 0 && second.num("value") == 1, "radio group exclusive");
 }
 
-private __gshared bool siblingHandlerCollected;
+private __gshared int collectFlags;
 
+/// A probe object whose destructor records that the GC collected it.
 private final class CollectFlag {
+    int ticks;
     ~this() {
-        siblingHandlerCollected = true;
+        ++collectFlags;
     }
 }
 
-/// Free R in R -> A, B while A holds a handler that captures a flag. The
-/// caller keeps B, so one store shared by both survivors would keep A's
+private NodeHandler captureFlag(CollectFlag flag) {
+    return (NodeEvent e) {
+        ++flag.ticks;
+    };
+}
+
+private NodeHandler captureNode(Node node) {
+    return (NodeEvent e) {
+        node.set("text", "tick");
+    };
+}
+
+/// Free R in R -> A, B while A's handler is the only reference to its flag.
+/// The caller keeps B, so one store shared by both survivors would keep A's
 /// handler (and the flag) alive; a store per survivor root lets both go.
-/// A thread gives the probe a stack the main collector no longer scans.
+/// A thread gives the probe a stack the main collector no longer scans, so
+/// nothing but the handler can reach the flag once `free()` returns.
 private Node siblingRetentionProbe() {
     Node survivor;
     auto thread = new Thread({
@@ -583,20 +598,51 @@ private Node siblingRetentionProbe() {
         auto sibling = new Node("frame");
         root.add(first);
         root.add(sibling);
-        auto flag = new CollectFlag();
-        first.on(BK_EV_CLICK, (NodeEvent) {
-            if (flag !is null) {
-                first.set("text", "tick");
-            }
-        });
+        first.on(BK_EV_CLICK, captureFlag(new CollectFlag()));
         root.free();
         survivor = sibling;
-        first = null;
-        flag = null;
     });
     thread.start();
     thread.join();
     return survivor;
+}
+
+/// Build R -> B where B's handler captures R and R's own handler captures a
+/// flag. B stays attached and kit-rooted; storing B's handler on B would keep
+/// R, its store and the flag alive, so R would never free and release B. A
+/// thread gives the probe a stack the main collector no longer scans.
+private void ancestorRetentionProbe() {
+    auto thread = new Thread({
+        auto root = new Node("frame");
+        auto child = new Node("frame");
+        root.add(child);
+        root.on(BK_EV_CLICK, captureFlag(new CollectFlag()));
+        child.on(BK_EV_CLICK, captureNode(root));
+    });
+    thread.start();
+    thread.join();
+}
+
+/// Free M in R -> M -> S while R stays alive and holds its own handler. S
+/// keeps its own handler; if the owner kept a copy of the survivor's entry,
+/// the flag would live as long as R. A thread gives the probe a stack the main
+/// collector no longer scans.
+private Node intermediateFreeProbe() {
+    Node root;
+    auto thread = new Thread({
+        auto outer = new Node("frame");
+        auto middle = new Node("frame");
+        auto survivor = new Node("frame");
+        outer.add(middle);
+        middle.add(survivor);
+        outer.on(BK_EV_CLICK, captureFlag(new CollectFlag()));
+        survivor.on(BK_EV_CLICK, captureFlag(new CollectFlag()));
+        middle.free();
+        root = outer;
+    });
+    thread.start();
+    thread.join();
+    return root;
 }
 
 private void testReviewRegressions() {
@@ -669,15 +715,51 @@ private void testReviewRegressions() {
           "an owned child keeps its handlers after the parent is freed");
     handlerChild.free();
 
+    // A handler registered on a worker thread is reachable only through the
+    // store, so the store must keep it alive across a collection.
+    int ticks;
+    Node probed;
+    auto probeThread = new Thread({
+        auto n = new Node("frame");
+        n.on(BK_EV_CLICK, (NodeEvent e) {
+            ++ticks;
+        });
+        probed = n;
+    });
+    probeThread.start();
+    probeThread.join();
+    GC.collect();
+    probed.dispatch(BK_EV_CLICK, null, 0, 0);
+    check(ticks == 1, "a store keeps a handler reachable across a collection");
+    probed.free();
+
     // A surviving owned root keeps only its own handler store; sharing it
     // with a sibling would keep an unrelated sibling's handlers, and anything
     // they capture, alive for as long as the survivor lives.
-    siblingHandlerCollected = false;
+    collectFlags = 0;
     auto surviving = siblingRetentionProbe();
     GC.collect();
-    check(siblingHandlerCollected,
+    check(collectFlags > 0,
           "a surviving sibling does not pin another survivor's handlers");
     surviving.free();
+
+    // An attached child is a GC root while its native tree lives, but its
+    // handlers live on the owning ancestor, so they cannot root that ancestor
+    // back and stop it from freeing the tree.
+    collectFlags = 0;
+    ancestorRetentionProbe();
+    GC.collect();
+    check(collectFlags > 0,
+          "an attached child's handler does not pin its owning ancestor");
+
+    // Freeing an intermediate node hands its survivor's entries to that
+    // survivor only; the still-live owner must not keep a copy either.
+    collectFlags = 0;
+    auto keptRoot = intermediateFreeProbe();
+    GC.collect();
+    check(collectFlags > 0,
+          "freeing an intermediate node does not pin its survivor's handlers");
+    keptRoot.free();
 
     // Moving a handled subtree to another parent keeps its handlers.
     int moved;

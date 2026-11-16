@@ -269,14 +269,15 @@ is returned, so identity is preserved.
 A C-owned node (a panel body, a popup, a picker part) gets one cached borrowed
 wrapper. The kit retains that wrapper for the node's lifetime, so handlers
 added through `parent().child(i)` keep receiving the node's events. The
-handlers themselves live on the nearest D-owned wrapper, not on a rooted
-borrowed one, so a handler closure cannot keep the owning panel alive.
+handlers themselves live on the topmost D-owned wrapper, not on a rooted
+borrowed one, so a handler closure cannot keep the owning panel alive and an
+attached child cannot root its ancestor through one.
 `free()` on a borrowed wrapper only drops its handlers and leaves the C node
 alone; a later `on()` starts a fresh handler list, so handlers registered
 before `free()` do not run again. An owned child that survives its parent's
-free keeps the handlers registered for its own subtree; each survivor keeps its
-own store, so one sibling's handlers cannot pin another sibling through a
-captured handler.
+free keeps the handlers registered for its own subtree; when the owning wrapper
+is freed each survivor takes only its own subtree's entries, so one sibling's
+handlers cannot pin another sibling through a captured handler.
 
 When a node is attached to a parent, the kit retains its wrapper through the
 reference hooks, exactly like the Python binding's `INCREF`/`DECREF`:
@@ -466,10 +467,10 @@ default). LDC defaults to the static CRT, so `dub.json` passes
   rename retention across shifted rows and a promoted target without a source
   row, batched root promotion, source-tree invalidation and subtree ownership
   cleanup), borrowed wrappers and handler invalidation, surviving owned
-  children (including sibling handler isolation), menus, custom nodes, host
-  errors, themes, icons, the CSS cascade, the HTML realiser (including repeat
-  `dispose()` and a failed remount), RSX (including delimited `q` strings) and
-  the stable C API version.
+  children (including sibling and ancestor handler isolation), menus, custom
+  nodes, host errors, themes, icons, the CSS cascade, the HTML realiser
+  (including repeat `dispose()` and a failed remount), RSX (including delimited
+  `q` strings) and the stable C API version.
 
 Run the suite with `dub run --config=test`. It is a normal executable, so it
 also works from CI steps that expect a process exit code.
